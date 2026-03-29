@@ -1,0 +1,10 @@
+scapy
+pandas
+numpy
+scikit-learn
+joblib
+requests
+cryptography
+websockets
+pywinrm
+paramiko
