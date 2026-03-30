@@ -19,7 +19,7 @@ import {
   Search,
   Filter,
 } from 'lucide-react';
-import { DUMMY_AGENTS, DUMMY_DCS, DUMMY_ACTIONS } from '../utils/dummyData';
+
 
 const STATUS_BADGES = {
   online: 'badge badge-success',
@@ -571,10 +571,17 @@ export default function ControlPlaneTab({
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      setDcs(DUMMY_DCS || []);
-      setAgents(DUMMY_AGENTS || []);
-      setActions(DUMMY_ACTIONS || []);
-    } catch {
+      const apiBase = api || 'http://localhost:8000';
+      const [dcsRes, agentsRes, actionsRes] = await Promise.all([
+        axios.get(`${apiBase}/api/control/dcs`),
+        axios.get(`${apiBase}/api/control/agents`),
+        axios.get(`${apiBase}/api/control/actions`)
+      ]);
+      setDcs(dcsRes.data || []);
+      setAgents(agentsRes.data || []);
+      setActions(actionsRes.data || []);
+    } catch (e) {
+      console.error('Failed to fetch control plane nodes:', e);
       setDcs([]);
       setAgents([]);
       setActions([]);

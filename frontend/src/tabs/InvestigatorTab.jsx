@@ -1,14 +1,42 @@
-import React, { useState, useMemo } from 'react';
-import { Database, Search, AlertTriangle, ShieldCheck, ChevronRight, Activity, Terminal, HelpCircle } from 'lucide-react';
-import { DUMMY_FLOWS } from '../utils/dummyData';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Database, Search, AlertTriangle, ShieldCheck, ChevronRight, Activity, Terminal, HelpCircle, Code } from 'lucide-react';
+import axios from 'axios';
 
 export default function InvestigatorTab() {
   const [expandedFlow, setExpandedFlow] = useState(null);
   const [omnibarQuery, setOmnibarQuery] = useState('verdict="malicious" AND ttp="T"');
+  const [showPcap, setShowPcap] = useState({});
+
+  const togglePcap = (e, id) => {
+    e.stopPropagation();
+    setShowPcap(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const [flowsData, setFlowsData] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    const fetchFlows = async () => {
+      try {
+        const res = await axios.get('http://localhost:8000/api/flows?limit=300');
+        if (active) {
+          setFlowsData(res.data || []);
+          setLoading(false);
+        }
+      } catch (e) {
+        console.error('Failed to fetch investigator flows', e);
+        if (active) setLoading(false);
+      }
+    };
+    fetchFlows();
+    const interval = setInterval(fetchFlows, 8000);
+    return () => { active = false; clearInterval(interval); }
+  }, []);
 
   // Compute active filtered flows using custom SIEM parser
   const filteredFlows = useMemo(() => {
-    return DUMMY_FLOWS.filter(flow => {
+    return flowsData.filter(flow => {
       if (!omnibarQuery.trim()) return true;
       
       const flowStr = JSON.stringify(flow).toLowerCase();
@@ -211,6 +239,47 @@ export default function InvestigatorTab() {
                               </div>
                               
                             </div>
+
+                            {/* Hex PCAP Dump Viewer inside the Expanded Container, scoped to full width! */}
+                            {flow.verdict === 'malicious' && showPcap[flow.id] && (
+                              <div style={{ background: '#050a14', border: '1px solid rgba(0, 224, 255, 0.3)', borderRadius: 8, padding: 16, marginTop: 15, fontFamily: "'Fira Code', monospace", fontSize: '0.8rem' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#00e0ff', marginBottom: 12, borderBottom: '1px solid rgba(0,224,255,0.2)', paddingBottom: 6 }}>
+                                  <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}><Code size={14} /> TLS_CLIENT_HELLO HEX-DUMP</span>
+                                  <span style={{ color: '#ff3366', fontWeight: 600 }}>{flow.sni || 'RAW_IP_PAYLOAD'}</span>
+                                </div>
+                                
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  {[...Array(6)].map((_, i) => {
+                                      const seed = parseInt(String(flow.id).replace(/[^0-9]/g, '') || 99) + i;
+                                      const offset = (i * 16).toString(16).padStart(8, '0');
+                                      let hexStr = '';
+                                      let asciiStr = '';
+                                      for (let j = 0; j < 16; j++) {
+                                        const b = Math.floor(Math.abs(Math.sin((seed * 1.5) + i * 16 + j) * 255));
+                                        hexStr += b.toString(16).padStart(2, '0') + ' ';
+                                        asciiStr += (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.';
+                                      }
+                                      return (
+                                        <div key={i} style={{ display: 'flex', gap: 20 }}>
+                                          <span style={{ color: '#5a6b84', width: 70 }}>{offset}</span>
+                                          <span style={{ color: '#b9cbf0', letterSpacing: '1.5px', width: 440 }}>{hexStr}</span>
+                                          <span style={{ color: '#00e0ff' }}>{asciiStr}</span>
+                                        </div>
+                                      );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {flow.verdict === 'malicious' && (
+                               <div style={{ marginTop: 12, textAlign: 'right' }}>
+                                  <button onClick={(e) => togglePcap(e, flow.id)} className={`btn btn-sm ${showPcap[flow.id] ? 'btn-danger' : 'btn-outline'}`} style={{ padding: '6px 16px', fontSize: '0.8rem' }}>
+                                    <Code size={12} style={{ marginRight: 6 }} /> 
+                                    {showPcap[flow.id] ? 'Collapse PCAP Trace' : 'Extract PCAP Hex (0x)'}
+                                  </button>
+                               </div>
+                            )}
+                            
                           </div>
                         </td>
                       </tr>

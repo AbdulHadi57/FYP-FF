@@ -1,17 +1,49 @@
-import React, { useState } from 'react';
-import { Network, Server, Users, Target, ShieldAlert, Cpu, ArrowRight, Zap, ChevronUp, ChevronDown, Globe, MapPin, Activity, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import { Network, Server, Users, Target, ShieldAlert, Cpu, ArrowRight, Zap, ChevronUp, ChevronDown, Globe, MapPin, Activity, AlertTriangle, LocateFixed } from 'lucide-react';
 import {
-  RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer
+  RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, Tooltip
 } from 'recharts';
-import { DUMMY_APT_PROFILES, DUMMY_FLOWS } from '../utils/dummyData';
+
 
 export default function ThreatIntelTab() {
   const [expandedActor, setExpandedActor] = useState(null);
+  const [c2Intel, setC2Intel] = useState([]);
+  const [loadingC2, setLoadingC2] = useState(true);
 
-  const aptProfiles = DUMMY_APT_PROFILES;
-  
-  // Find all malicious flows to map to the IPs
-  const maliciousFlows = DUMMY_FLOWS.filter(f => f.verdict === 'malicious');
+  const [aptProfiles, setAptProfiles] = useState([]);
+  const [maliciousFlows, setMaliciousFlows] = useState([]);
+  const [loadingIntel, setLoadingIntel] = useState(true);
+
+  // Dynamically fetch live threat intel telemetry
+  useEffect(() => {
+    let active = true;
+    const fetchIntel = async () => {
+       try {
+          const [c2Res, aptRes, flowsRes] = await Promise.all([
+             axios.get('http://localhost:8000/api/c2-intel'),
+             axios.get('http://localhost:8000/api/apt-stats'),
+             axios.get('http://localhost:8000/api/flows?limit=300')
+          ]);
+          if (active) {
+            setC2Intel(c2Res.data);
+            setAptProfiles(aptRes.data.profiles || []);
+            setMaliciousFlows((flowsRes.data || []).filter(f => f.verdict === 'malicious'));
+            setLoadingC2(false);
+            setLoadingIntel(false);
+          }
+       } catch (e) {
+          console.error('Failed to fetch threat intel', e);
+          if (active) {
+             setLoadingC2(false);
+             setLoadingIntel(false);
+          }
+       }
+    };
+    fetchIntel();
+    const intv = setInterval(fetchIntel, 12000); // Polling every 12s
+    return () => { active = false; clearInterval(intv); }
+  }, []);
 
   // Kill Chain Mapping (Hardcoded simulation based on active alerts)
   const killChain = [
@@ -20,14 +52,6 @@ export default function ThreatIntelTab() {
     { name: 'Defense Evasion', active: true, level: 2 },
     { name: 'Command & Control', active: true, level: 3 }, // Highest activity
     { name: 'Data Exfiltration', active: false, level: 0 }
-  ];
-
-  // Dummy C2 Infrastructure intelligence
-  const c2Intel = [
-    { asn: 'AS20473 (Choopa, LLC)', country: 'Russia (RU)', ip: '146.185.239.12', type: 'Bulletproof Host', flows: 1420, heat: '#ff3366' },
-    { asn: 'AS16276 (OVH SAS)', country: 'France (FR)', ip: '192.99.14.8', type: 'Known C2 Node', flows: 890, heat: '#ff9a3d' },
-    { asn: 'AS4436 (GTT Comms)', country: 'Romania (RO)', ip: '89.44.9.22', type: 'Compromised Proxy', flows: 340, heat: '#f4c542' },
-    { asn: 'AS13335 (Cloudflare)', country: 'USA (US)', ip: '104.21.55.12', type: 'Domain Fronting', flows: 112, heat: '#00e0ff' },
   ];
 
   return (
@@ -115,44 +139,72 @@ export default function ThreatIntelTab() {
           </div>
         </div>
 
-        {/* C2 Infrastructure Intelligence */}
+        {/* C2 Infrastructure Intelligence With Radar */}
         <div className="card glass-panel" style={{ padding: 20 }}>
-          <h3 style={{ margin: '0 0 16px', fontSize: '1.1rem', color: '#e7eefb', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Globe size={20} style={{ color: '#00e0ff' }} />
-            Rogue C2 Infrastructure (Geo/ASN)
+          <h3 style={{ margin: '0 0 16px', fontSize: '1.1rem', color: '#ff3366', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Globe size={20} style={{ color: '#ff3366' }} />
+            Rogue C2 Infrastructure (Geo/ASN) & Topography Match
           </h3>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="data-table" style={{ margin: 0 }}>
-              <thead style={{ background: 'rgba(5, 8, 15, 0.95)' }}>
-                <tr>
-                  <th style={{ padding: '8px 10px', color: '#8d97aa' }}>Destination</th>
-                  <th style={{ padding: '8px 10px', color: '#8d97aa' }}>Autonomous System</th>
-                  <th style={{ padding: '8px 10px', color: '#8d97aa' }}>Geo</th>
-                </tr>
-              </thead>
-              <tbody>
-                {c2Intel.map((c2, idx) => (
-                  <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
-                    <td className="mono" style={{ color: '#00e0ff', padding: '10px' }}>
-                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <AlertTriangle size={14} style={{ color: c2.heat }} />
-                          {c2.ip}
-                       </div>
-                    </td>
-                    <td style={{ color: '#e7eefb', fontSize: '0.85rem', padding: '10px' }}>
-                       {c2.asn}<br/>
-                       <span style={{ color: '#8d97aa', fontSize: '0.75rem' }}>{c2.type} &bull; {c2.flows} TLS Flows</span>
-                    </td>
-                    <td style={{ padding: '10px' }}>
-                       <span className="badge badge-outline" style={{ borderColor: 'rgba(255,255,255,0.1)', color: '#c3cedf' }}>
-                         <MapPin size={10} style={{ marginRight: 4 }}/>
-                         {c2.country}
-                       </span>
-                    </td>
+          <p style={{ fontSize: '0.8rem', color: '#8d97aa', marginBottom: 20 }}>Live interception mapping of active TLS flows resolving to high-risk Bulletproof ASN hubs.</p>
+
+          <div className="grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'center' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="data-table" style={{ margin: 0 }}>
+                <thead style={{ background: 'rgba(5, 8, 15, 0.95)' }}>
+                  <tr>
+                    <th style={{ padding: '8px 10px', color: '#8d97aa' }}>Destination</th>
+                    <th style={{ padding: '8px 10px', color: '#8d97aa' }}>Autonomous System</th>
+                    <th style={{ padding: '8px 10px', color: '#8d97aa' }}>Geo</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {loadingC2 && (
+                    <tr><td colSpan={3} style={{ textAlign: 'center', padding: '20px', color: '#8d97aa' }}><Activity size={16} className="spin" style={{ display: 'inline', marginRight: 8 }}/> Running live GeoIP lookup...</td></tr>
+                  )}
+                  {!loadingC2 && c2Intel.length === 0 && (
+                    <tr><td colSpan={3} style={{ textAlign: 'center', padding: '20px', color: '#8d97aa' }}>No malicious external destinations active.</td></tr>
+                  )}
+                  {!loadingC2 && c2Intel.map((c2, idx) => (
+                    <tr key={idx} style={{ borderBottom: '1px solid rgba(255,51,102,0.1)' }}>
+                      <td className="mono" style={{ color: '#ff3366', padding: '10px' }}>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <AlertTriangle size={14} style={{ color: '#ff3366' }} />
+                            {c2.ip}
+                         </div>
+                      </td>
+                      <td style={{ color: '#e7eefb', fontSize: '0.85rem', padding: '10px' }}>
+                         {c2.asn}<br/>
+                         <span style={{ color: '#8d97aa', fontSize: '0.75rem' }}>{c2.classification} &bull; {c2.flows} TLS Flows</span>
+                      </td>
+                      <td style={{ padding: '10px' }}>
+                         <span className="badge badge-outline" style={{ borderColor: 'rgba(255,51,102,0.2)', color: '#c3cedf' }}>
+                           <MapPin size={10} style={{ marginRight: 4 }}/>
+                           {c2.geo}
+                         </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: 12, border: '1px solid rgba(255,51,102,0.1)', height: 260, position: 'relative' }}>
+               <ResponsiveContainer width="100%" height="100%">
+                  <RadarChart cx="50%" cy="50%" outerRadius="70%" data={c2Intel.map(t => ({ region: t.geo.split('(')[0].trim(), risk: Math.min((t.flows / 50) * 100, 100), volume: t.flows }))}>
+                    <PolarGrid stroke="rgba(255,51,102,0.2)" />
+                    <PolarAngleAxis dataKey="region" tick={{ fill: '#8d97aa', fontSize: 11 }} />
+                    <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                    <Tooltip 
+                      contentStyle={{ background: 'rgba(5,8,15,0.95)', border: '1px solid rgba(255,51,102,0.4)', borderRadius: 8 }}
+                      itemStyle={{ color: '#ff3366', fontSize: '0.85rem' }}
+                    />
+                    <Radar name="Threat Density Risk" dataKey="risk" stroke="#ff3366" fill="#ff3366" fillOpacity={0.4} />
+                  </RadarChart>
+               </ResponsiveContainer>
+               <div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 6, color: '#ff3366', fontSize: '0.75rem', fontWeight: 600 }}>
+                 <LocateFixed size={12} className="spin" style={{ color: '#ff3366' }} /> GEO-RADAR ACTIVE
+               </div>
+            </div>
           </div>
         </div>
       </div>

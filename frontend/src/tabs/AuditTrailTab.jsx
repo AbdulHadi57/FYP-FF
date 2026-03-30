@@ -13,7 +13,7 @@ import {
   ArrowDownToLine,
   Trash2,
 } from 'lucide-react';
-import { DUMMY_AUDITS } from '../utils/dummyData';
+
 
 const eventConfig = {
   dispatched: { icon: ShieldAlert, label: 'Host Isolation', color: '#ff3366' },
@@ -33,7 +33,10 @@ export default function AuditTrailTab({ api = '', globalSearch = '', autoRefresh
   const fetchTrail = useCallback(async () => {
     setLoading(true);
     try {
-      const sortedAudits = [...DUMMY_AUDITS].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      const apiBase = api || 'http://localhost:8000';
+      const res = await axios.get(`${apiBase}/api/control/audit-trail?limit=500`);
+      const data = res.data || [];
+      const sortedAudits = [...data].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       setTrail(sortedAudits);
     } catch {
       setTrail([]);

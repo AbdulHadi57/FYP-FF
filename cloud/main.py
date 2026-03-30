@@ -8,6 +8,8 @@ import sqlite3
 import logging
 import datetime
 import re
+import requests
+import threading
 
 from detection import DetectionEngine, FeatureRecord
 from database import get_db_connection
@@ -158,6 +160,75 @@ def get_stats():
             top_attackers=top_attackers,
             last_flow_timestamp=last_seen
         )
+    finally:
+        conn.close()
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Threat Intelligence
+# ──────────────────────────────────────────────────────────────────────
+
+GEOIP_CACHE = {}
+GEOIP_CACHE_LOCK = threading.Lock()
+
+@app.get("/api/c2-intel")
+def get_c2_intel():
+    """Dynamically fetches top malicious IP destinations and enriches with ip-api.com"""
+    conn = get_db_connection()
+    try:
+        # Get top unique malicious destination IPs natively
+        rows = conn.execute("""
+            SELECT dst_ip, COUNT(*) as cnt
+            FROM flows
+            WHERE verdict = 'malicious'
+            GROUP BY dst_ip
+            ORDER BY cnt DESC
+            LIMIT 10
+        """).fetchall()
+        
+        results = []
+        for row in rows:
+            ip = row["dst_ip"]
+            flows = row["cnt"]
+            
+            # Skip local/private IP ranges and IPv6 if desired (we'll skip local for now)
+            if not ip or ip.startswith("192.168.") or ip.startswith("10.") or ip.startswith("127.") or ip.startswith("172."):
+                continue
+                
+            # Check Memory Cache
+            with GEOIP_CACHE_LOCK:
+                cached = GEOIP_CACHE.get(ip)
+                
+            if cached:
+                geo_data = cached
+            else:
+                try:
+                    resp = requests.get(f"http://ip-api.com/json/{ip}?fields=status,country,countryCode,isp,as", timeout=3)
+                    data = resp.json()
+                    if data.get("status") == "success":
+                        geo_data = {
+                            "geo": f"{data.get('country', 'Unknown')} ({data.get('countryCode', 'N/A')})",
+                            "asn": data.get("as", data.get("isp", "Unknown ASN"))
+                        }
+                    else:
+                        geo_data = {"geo": "Reserved Range", "asn": "Unknown ASN"}
+                    
+                    # Cache the result to avoid Rate Limiting
+                    with GEOIP_CACHE_LOCK:
+                        GEOIP_CACHE[ip] = geo_data
+                except Exception as e:
+                    logger.warning(f"Failed to lookup GeoIP for {ip}: {e}")
+                    geo_data = {"geo": "Lookup Failed", "asn": "Lookup Failed"}
+                    
+            results.append({
+                "ip": ip,
+                "asn": geo_data["asn"],
+                "geo": geo_data["geo"],
+                "classification": "Suspected C2 Node",
+                "flows": flows
+            })
+            
+        return results
     finally:
         conn.close()
 

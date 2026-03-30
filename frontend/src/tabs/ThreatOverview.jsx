@@ -7,13 +7,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell,
   LineChart, Line, AreaChart, Area, PieChart, Pie
 } from 'recharts';
-import { 
-  DUMMY_STATS, 
-  DUMMY_TIMELINE, 
-  DUMMY_MODULES,
-  DUMMY_FLOWS,
-  DUMMY_APT_PROFILES
-} from '../utils/dummyData';
+import axios from 'axios';
 
 export default function ThreatOverview() {
   const [stats, setStats] = useState(null);
@@ -24,58 +18,80 @@ export default function ThreatOverview() {
   const [protocolData, setProtocolData] = useState([]);
   const [aptProfiles, setAptProfiles] = useState([]);
 
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    // Simulate initial loading
-    setStats(DUMMY_STATS);
-    setTimeline(DUMMY_TIMELINE);
-    setModules(DUMMY_MODULES);
-    setAptProfiles(DUMMY_APT_PROFILES);
-    
-    // Calculate Severity Distribution
-    const sev = { Critical: 0, High: 0, Medium: 0, Low: 0 };
-    
-    DUMMY_FLOWS.forEach(f => {
-      if (f.verdict === 'malicious') {
-        if (f.severity > 0.8) sev.Critical++;
-        else if (f.severity > 0.6) sev.High++;
-        else if (f.severity > 0.4) sev.Medium++;
-        else sev.Low++;
+    let active = true;
+    const fetchData = async () => {
+      try {
+        const [statsRes, timeRes, modRes, flowsRes, aptRes] = await Promise.all([
+          axios.get('http://localhost:8000/api/stats'),
+          axios.get('http://localhost:8000/api/timeline'),
+          axios.get('http://localhost:8000/api/modules'),
+          axios.get('http://localhost:8000/api/flows?limit=300'),
+          axios.get('http://localhost:8000/api/apt-stats')
+        ]);
+        
+        if (!active) return;
+        setStats(statsRes.data);
+        setTimeline(timeRes.data);
+        setModules(modRes.data);
+        setAptProfiles(aptRes.data.profiles || []);
+        
+        const flows = flowsRes.data || [];
+        
+        // Calculate Severity Distribution
+        const sev = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+        
+        flows.forEach(f => {
+          if (f.verdict === 'malicious') {
+            if (f.severity > 0.8) sev.Critical++;
+            else if (f.severity > 0.6) sev.High++;
+            else if (f.severity > 0.4) sev.Medium++;
+            else sev.Low++;
+          }
+        });
+
+        setSeverityData([
+          { name: 'Critical', value: sev.Critical, color: '#ff3366' },
+          { name: 'High', value: sev.High, color: '#ff9a3d' },
+          { name: 'Medium', value: sev.Medium, color: '#f4c542' },
+          { name: 'Low', value: sev.Low, color: '#54a6ff' }
+        ]);
+        
+        // Calculate Encryption Protocols (TLS 1.3 vs 1.2 vs QUIC) 
+        const protoCounts = { 'TLS 1.3': 0, 'TLS 1.2': 0, 'QUIC': 0, 'Other / Custom': 0 };
+        const allHashes = [...(modRes.data.top_ja4 || []), ...(modRes.data.top_ja4s || [])];
+        allHashes.forEach(item => {
+          const hash = item.ja4 || '';
+          if (hash.startsWith('t13')) protoCounts['TLS 1.3'] += item.count;
+          else if (hash.startsWith('t12')) protoCounts['TLS 1.2'] += item.count;
+          else if (hash.startsWith('q13') || hash.startsWith('q12') || hash.startsWith('q20')) protoCounts['QUIC'] += item.count;
+          else protoCounts['Other / Custom'] += item.count;
+        });
+
+        setProtocolData([
+          { name: 'TLS 1.3', value: protoCounts['TLS 1.3'], color: '#00e0ff' },
+          { name: 'TLS 1.2', value: protoCounts['TLS 1.2'], color: '#9f8fff' },
+          { name: 'QUIC', value: protoCounts['QUIC'], color: '#ff9a3d' },
+          { name: 'Other / Custom', value: protoCounts['Other / Custom'], color: '#54a6ff' }
+        ]);
+        
+        setLoading(false);
+      } catch (e) {
+        console.error('API Error in ThreatOverview:', e);
+        if (active) setLoading(false);
       }
-    });
-
-    setSeverityData([
-      { name: 'Critical', value: sev.Critical || 45, color: '#ff3366' },
-      { name: 'High', value: sev.High || 120, color: '#ff9a3d' },
-      { name: 'Medium', value: sev.Medium || 210, color: '#f4c542' },
-      { name: 'Low', value: sev.Low || 85, color: '#54a6ff' }
-    ]);
+    };
     
-    // Calculate Encryption Protocols (TLS 1.3 vs 1.2 vs QUIC) 
-    const protoCounts = { 'TLS 1.3': 0, 'TLS 1.2': 0, 'QUIC': 0, 'Other / Custom': 0 };
-    const allHashes = [...(DUMMY_MODULES.top_ja4 || []), ...(DUMMY_MODULES.top_ja4s || [])];
-    allHashes.forEach(item => {
-      const hash = item.ja4 || '';
-      if (hash.startsWith('t13')) protoCounts['TLS 1.3'] += item.count;
-      else if (hash.startsWith('t12')) protoCounts['TLS 1.2'] += item.count;
-      else if (hash.startsWith('q13') || hash.startsWith('q12') || hash.startsWith('q20')) protoCounts['QUIC'] += item.count;
-      else protoCounts['Other / Custom'] += item.count;
-    });
-
-    setProtocolData([
-      { name: 'TLS 1.3', value: protoCounts['TLS 1.3'] || 4520, color: '#00e0ff' },
-      { name: 'TLS 1.2', value: protoCounts['TLS 1.2'] || 1240, color: '#9f8fff' },
-      { name: 'QUIC', value: protoCounts['QUIC'] || 860, color: '#ff9a3d' },
-      { name: 'Other / Custom', value: protoCounts['Other / Custom'] || 210, color: '#54a6ff' }
-    ]);
+    fetchData();
+    const interval = setInterval(fetchData, 8000);
+    return () => { active = false; clearInterval(interval); };
   }, []);
 
-  if (!stats || !modules) return <div className="loading-spinner"><div className="spinner" /></div>;
+  if (loading || !stats || !modules) return <div className="loading-spinner"><div className="spinner" /></div>;
 
-  const attackers = stats.top_attackers || [
-    { ip: '192.168.1.105', count: 420 },
-    { ip: '10.0.0.51', count: 185 },
-    { ip: '45.33.22.11', count: 95 }
-  ];
+  const attackers = stats.top_attackers || [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
