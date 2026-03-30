@@ -1,9 +1,18 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import {
-  LayoutDashboard, GitBranch, Crosshair, Users,
-  Fingerprint, SlidersHorizontal, FileText, Database,
-  ShieldCheck, Activity, Wifi, WifiOff, RefreshCw
+  Shield,
+  LayoutDashboard,
+  Database,
+  Crosshair,
+  Users,
+  SlidersHorizontal,
+  FileText,
+  Siren,
+  Activity,
+  Wifi,
+  WifiOff,
+  RefreshCw,
 } from 'lucide-react';
 
 import ThreatOverview from './tabs/ThreatOverview';
@@ -14,7 +23,7 @@ import ControlPlaneTab from './tabs/ControlPlaneTab';
 import AuditTrailTab from './tabs/AuditTrailTab';
 import RawData from './tabs/RawData';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API = import.meta.env.VITE_API_URL || '';
 const CONTROL_KEY = import.meta.env.VITE_CONTROL_API_KEY || (typeof window !== 'undefined' ? window.localStorage.getItem('AEGIS_CONTROL_API_KEY') || '' : '');
 
 if (CONTROL_KEY) {
@@ -22,109 +31,194 @@ if (CONTROL_KEY) {
 }
 
 const TABS = [
-  { id: 'overview',   label: 'Threat Overview',     icon: LayoutDashboard, color: '#00e0ff' },
-  { id: 'pipeline',   label: 'Detection Pipeline',  icon: GitBranch,       color: '#a78bfa' },
-  { id: 'ttp',        label: 'TTP Analysis',         icon: Crosshair,      color: '#f97316' },
-  { id: 'apt',        label: 'APT Intelligence',     icon: Users,          color: '#ef4444' },
-  { id: 'ja4',        label: 'JA4 Fingerprinting',   icon: Fingerprint,    color: '#22d3ee' },
-  { id: 'control',    label: 'Control Plane',         icon: SlidersHorizontal, color: '#10b981' },
-  { id: 'audit',      label: 'Audit Trail',           icon: FileText,       color: '#8b5cf6' },
-  { id: 'data',       label: 'Flow Inspector',        icon: Database,       color: '#6b7280' },
+  { id: 'overview', label: 'Threat Overview', icon: LayoutDashboard },
+  { id: 'detection', label: 'Threat Management', icon: Siren },
+  { id: 'ttp', label: 'TTP Intelligence', icon: Crosshair },
+  { id: 'apt', label: 'APT Detection', icon: Users },
+  { id: 'explorer', label: 'Raw Data Inspector', icon: Database },
+  { id: 'control', label: 'Response Control', icon: SlidersHorizontal },
+  { id: 'audit', label: 'Audit Trail', icon: FileText },
+];
+
+const TIME_RANGES = [
+  { value: '30m', label: 'Pulse 30m', seconds: 1800 },
+  { value: '1h', label: 'Pulse 1h', seconds: 3600 },
+  { value: '6h', label: 'Shift 6h', seconds: 21600 },
+  { value: '24h', label: 'Day 24h', seconds: 86400 },
+];
+
+const REFRESH_OPTIONS = [
+  { value: 0, label: 'On-demand' },
+  { value: 5, label: '5s' },
+  { value: 10, label: '10s' },
+  { value: 20, label: '20s' },
+  { value: 30, label: '30s' },
 ];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('overview');
   const [apiStatus, setApiStatus] = useState('connecting');
   const [pipelineStatus, setPipelineStatus] = useState({});
-  const [lastCheck, setLastCheck] = useState(null);
+  const [selectedFlowId, setSelectedFlowId] = useState(null);
+  const [timeRange, setTimeRange] = useState('6h');
+  const [refreshSeconds, setRefreshSeconds] = useState(10);
+  const [globalSearch, setGlobalSearch] = useState('');
+  const [pivot, setPivot] = useState(null);
 
   const checkHealth = useCallback(async () => {
     try {
-      const res = await axios.get(`${API}/api/health`, { timeout: 4000 });
-      setApiStatus('online');
-      setPipelineStatus(res.data.pipeline || {});
-      setLastCheck(new Date());
+      const statsRes = await axios.get(`${API}/api/stats`, { timeout: 4000 });
+      const ts = statsRes?.data?.last_flow_timestamp;
+
+      if (ts) {
+        const lastSeen = new Date(ts).getTime();
+        setApiStatus(Date.now() - lastSeen < 15000 ? 'online' : 'offline');
+      } else {
+        setApiStatus('online');
+      }
+
+      const healthRes = await axios.get(`${API}/api/health`, { timeout: 4000 });
+      setPipelineStatus(healthRes?.data?.pipeline || {});
     } catch {
       setApiStatus('offline');
+      setPipelineStatus({});
+    }
+  }, []);
+
+  const timeRangeSeconds = useMemo(
+    () => TIME_RANGES.find((r) => r.value === timeRange)?.seconds ?? 21600,
+    [timeRange],
+  );
+
+  const handlePivot = useCallback((payload = {}) => {
+    setPivot({ ...payload, ts: Date.now() });
+
+    if (payload.search) {
+      setGlobalSearch(String(payload.search));
+    }
+    if (payload.targetTab) {
+      setActiveTab(payload.targetTab);
+    }
+    if (payload.flowId) {
+      setSelectedFlowId(payload.flowId);
     }
   }, []);
 
   useEffect(() => {
     checkHealth();
-    const id = setInterval(checkHealth, 15000);
-    return () => clearInterval(id);
-  }, [checkHealth]);
+    if (refreshSeconds <= 0) {
+      return undefined;
+    }
 
-  const activeTabData = TABS.find(t => t.id === activeTab);
+    const id = setInterval(checkHealth, refreshSeconds * 1000);
+    return () => clearInterval(id);
+  }, [checkHealth, refreshSeconds]);
+
+  const sharedProps = {
+    api: API,
+    onPivot: handlePivot,
+    pivot,
+    globalSearch,
+    setGlobalSearch,
+    timeRangeSeconds,
+    autoRefreshSeconds: refreshSeconds,
+  };
 
   return (
-    <div className="app-container">
-      {/* ── Top Header ── */}
-      <header className="app-header">
-        <div className="header-left">
-          <div className="logo-mark">
-            <ShieldCheck size={28} strokeWidth={2} />
+    <div className="app-shell min-h-screen bg-background text-gray-300 font-sans selection:bg-primary selection:text-black">
+      <header className="bg-black/30 backdrop-blur-md border-b border-white/10 sticky top-0 z-50 transition-all duration-300">
+        <div className="shell-frame p-4 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-4 self-start md:self-auto">
+            <div className={`z-10 relative transition-all duration-500 ${apiStatus === 'online' ? 'logo-glow-intense' : ''}`}>
+              <Shield className={`w-11 h-11 transition-colors duration-500 ${apiStatus === 'online' ? 'text-cyan-400' : 'text-gray-600'}`} />
+            </div>
+            <h1
+              className={`text-[2rem] md:text-[2.1rem] font-bold tracking-wider transition-all duration-500 ${apiStatus === 'online'
+                ? 'bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-blue-400 to-cyan-400'
+                : 'text-gray-600'
+                }`}
+              style={{ textShadow: apiStatus === 'online' ? '0 0 20px rgba(6,182,212,0.5)' : 'none' }}
+            >
+              AEGISNET
+            </h1>
           </div>
-          <div>
-            <h1 className="app-title">AEGISNET</h1>
-            <p className="app-subtitle">Threat Intelligence & Detection Platform</p>
-          </div>
-        </div>
 
-        <div className="header-right">
-          <div className={`status-badge ${apiStatus}`}>
-            {apiStatus === 'online' ? <Wifi size={14} /> : apiStatus === 'offline' ? <WifiOff size={14} /> : <Activity size={14} />}
-            <span>{apiStatus === 'online' ? 'Cloud Connected' : apiStatus === 'offline' ? 'Cloud Offline' : 'Connecting…'}</span>
+          <div className="flex items-center gap-2 flex-wrap self-end md:self-auto">
+            <div className={`status-pill ${apiStatus}`}>
+              {apiStatus === 'online' ? <Wifi size={14} /> : apiStatus === 'offline' ? <WifiOff size={14} /> : <Activity size={14} />}
+              <span>{apiStatus === 'online' ? 'Signal Link Live' : apiStatus === 'offline' ? 'Signal Link Lost' : 'Syncing Link…'}</span>
+            </div>
+            <div className={`pipeline-health-chip ${pipelineStatus.ja4_model ? 'on' : 'off'}`}>Fingerprint</div>
+            <div className={`pipeline-health-chip ${pipelineStatus.ttp_model ? 'on' : 'off'}`}>Technique Map</div>
+            <div className={`pipeline-health-chip ${pipelineStatus.apt_stix ? 'on' : 'off'}`}>Actor Intel</div>
+            <label className="utility-label">
+              <span>Scope</span>
+              <select className="utility-select" value={timeRange} onChange={(e) => setTimeRange(e.target.value)}>
+                {TIME_RANGES.map((range) => (
+                  <option key={range.value} value={range.value}>{range.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="utility-label">
+              <span>Cadence</span>
+              <select className="utility-select" value={refreshSeconds} onChange={(e) => setRefreshSeconds(Number(e.target.value))}>
+                {REFRESH_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </label>
+            <button className="icon-btn" onClick={checkHealth} title="Sync status">
+              <RefreshCw size={16} />
+            </button>
           </div>
-          {pipelineStatus.ttp_model && (
-            <div className="pipeline-indicator active">
-              <Crosshair size={13} />
-              <span>TTP Model</span>
-            </div>
-          )}
-          {pipelineStatus.apt_stix && (
-            <div className="pipeline-indicator active">
-              <Users size={13} />
-              <span>APT STIX</span>
-            </div>
-          )}
-          <button className="refresh-btn" onClick={checkHealth} title="Refresh status">
-            <RefreshCw size={16} />
-          </button>
         </div>
       </header>
 
-      {/* ── Navigation ── */}
-      <nav className="tab-nav">
-        {TABS.map(tab => {
+      <nav className="shell-frame px-1 sm:px-2 py-3 flex items-center gap-2 overflow-x-auto">
+        {TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
-              id={`tab-${tab.id}`}
-              className={`tab-btn ${isActive ? 'active' : ''}`}
               onClick={() => setActiveTab(tab.id)}
-              style={isActive ? { '--tab-color': tab.color } : {}}
+              className={`
+                flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all duration-300 whitespace-nowrap border
+                ${isActive
+                  ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.2)]'
+                  : 'bg-transparent text-gray-400 border-transparent hover:bg-white/5 hover:text-gray-200 hover:border-white/10'
+                }
+              `}
             >
-              <Icon size={16} />
+              <Icon size={16} className={isActive ? 'animate-pulse' : ''} />
               <span>{tab.label}</span>
-              {isActive && <div className="tab-indicator" />}
             </button>
           );
         })}
       </nav>
 
-      {/* ── Content ── */}
-      <main className="main-content">
-        {activeTab === 'overview'  && <ThreatOverview api={API} />}
-        {activeTab === 'pipeline'  && <DetectionPipeline api={API} />}
-        {activeTab === 'ttp'       && <TTPAnalysis api={API} />}
-        {activeTab === 'apt'       && <APTIntelligence api={API} />}
-        {activeTab === 'ja4'       && <RawData api={API} view="ja4" />}
-        {activeTab === 'control'   && <ControlPlaneTab api={API} />}
-        {activeTab === 'audit'     && <AuditTrailTab api={API} />}
-        {activeTab === 'data'      && <RawData api={API} view="flows" />}
+      <main className="shell-frame py-8">
+        {activeTab === 'overview'  && (
+          <ThreatOverview
+            {...sharedProps}
+            apiStatus={apiStatus}
+            pipelineStatus={pipelineStatus}
+          />
+        )}
+        {activeTab === 'detection' && <DetectionPipeline {...sharedProps} />}
+        {activeTab === 'ttp'       && <TTPAnalysis {...sharedProps} />}
+        {activeTab === 'apt'       && <APTIntelligence {...sharedProps} />}
+        {activeTab === 'explorer'  && (
+          <RawData
+            api={API}
+            selectedFlowId={selectedFlowId ?? (pivot?.targetTab === 'explorer' ? pivot?.flowId : undefined)}
+            globalSearch={globalSearch}
+            onPivot={handlePivot}
+            autoRefreshSeconds={refreshSeconds}
+          />
+        )}
+        {activeTab === 'control'   && <ControlPlaneTab api={API} globalSearch={globalSearch} autoRefreshSeconds={refreshSeconds} />}
+        {activeTab === 'audit'     && <AuditTrailTab api={API} globalSearch={globalSearch} autoRefreshSeconds={refreshSeconds} />}
       </main>
     </div>
   );

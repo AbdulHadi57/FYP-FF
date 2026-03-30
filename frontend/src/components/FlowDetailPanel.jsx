@@ -1,119 +1,153 @@
-import React from 'react';
 import { X, Shield, Clock, Activity } from 'lucide-react';
 
 export default function FlowDetailPanel({ flow, loading, onClose }) {
-    if (!flow && !loading) return null;
+  if (!flow && !loading) return null;
 
-    const getProtoName = (p) => {
-        if (p === 6) return 'TCP';
-        if (p === 17) return 'UDP';
-        if (p === 1) return 'ICMP';
-        return p;
-    };
+  const getProtoName = (protocolValue) => {
+    if (protocolValue === 6) return 'TCP';
+    if (protocolValue === 17) return 'UDP';
+    if (protocolValue === 1) return 'ICMP';
+    return protocolValue;
+  };
 
-    return (
-        <div className="fixed inset-y-0 right-0 w-full md:w-1/3 bg-surface border-l border-border shadow-2xl z-50 transform transition-transform duration-300 ease-in-out p-6 font-sans flex flex-col">
-            {loading && !flow ? (
-                <div className="flex items-center justify-center h-full text-primary">Loading details...</div>
-            ) : flow && (
-                <div className="relative h-full flex flex-col">
-                    {/* Sticky Header */}
-                    <div className="sticky top-0 bg-surface z-10 pb-6 mb-2 border-b border-border/50 pt-1">
-                        <div className="flex justify-between items-start">
-                            <div>
-                                <div className="flex items-center gap-2 mb-2">
-                                    <Shield size={20} className={flow.features?.verdict === 'malicious' ? 'text-danger' : 'text-success'} />
-                                    <h2 className="text-2xl font-bold text-white">Flow #{flow.id}</h2>
-                                </div>
-                                <p className="text-sm text-gray-500">
-                                    Captured: {flow.features?.timestamp ? new Date(flow.features.timestamp).toLocaleString() : 'N/A'}
-                                </p>
-                            </div>
-                            <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors bg-black/20 p-2 rounded-full hover:bg-white/10">
-                                <X size={24} />
-                            </button>
-                        </div>
-                    </div>
+  const features = flow?.features || {};
 
-                    {/* Scrollable Content */}
-                    <div className="flex-1 overflow-y-auto pb-10">
-
-                        {/* Summary Cards */}
-                        <div className="grid grid-cols-2 gap-4 mb-8">
-                            <div className="bg-black/40 p-3 rounded border border-border">
-                                <p className="text-xs text-gray-500 uppercase">Duration</p>
-                                <p className="text-lg font-mono text-white flex items-center gap-2">
-                                    <Clock size={14} className="text-primary" />
-                                    {flow.features?.flow_duration?.toFixed(4)}s
-                                </p>
-                            </div>
-                            <div className="bg-black/40 p-3 rounded border border-border">
-                                <p className="text-xs text-gray-500 uppercase">Total Packets</p>
-                                <p className="text-lg font-mono text-white flex items-center gap-2">
-                                    <Activity size={14} className="text-primary" />
-                                    {flow.features?.total_packets}
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="space-y-6">
-                            <div>
-                                <h4 className="text-sm font-bold text-gray-400 uppercase mb-3 border-b border-border pb-1">5-Tuple Identity</h4>
-                                <div className="grid grid-cols-2 gap-y-2 text-sm">
-                                    <div className="text-gray-500">Source IP</div>
-                                    <div className="text-white font-mono text-right">{flow.features?.src_ip}</div>
-
-                                    <div className="text-gray-500">Source Port</div>
-                                    <div className="text-white font-mono text-right">{flow.features?.src_port}</div>
-
-                                    <div className="text-gray-500">Dest IP</div>
-                                    <div className="text-white font-mono text-right">{flow.features?.dst_ip}</div>
-
-                                    <div className="text-gray-500">Dest Port</div>
-                                    <div className="text-white font-mono text-right">{flow.features?.dst_port}</div>
-
-                                    <div className="text-gray-500">Protocol</div>
-                                    <div className="text-white font-mono text-right">{getProtoName(flow.features?.protocol)}</div>
-
-                                    {flow.features?.matched_sni_domain && flow.features?.matched_sni_domain !== 'None' && (
-                                        <>
-                                            <div className="text-gray-500">SNI / Domain</div>
-                                            <div className="text-cyan-300 font-mono text-right break-all">{flow.features?.matched_sni_domain}</div>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div>
-                                <h4 className="text-sm font-bold text-gray-400 uppercase mb-3 border-b border-border pb-1">Extracted Features</h4>
-                                <div className="space-y-2">
-                                    {Object.entries(flow.features || {}).map(([key, value]) => {
-                                        if (['src_ip', 'src_port', 'dst_ip', 'dst_port', 'protocol', 'timestamp', 'flow_duration', 'total_packets', 'verdict', 'matched_sni_domain'].includes(key)) return null;
-
-                                        if (!value || value.toString().toLowerCase() === 'none' || value === '') return null;
-
-                                        let displayValue = value;
-                                        if (typeof value === 'object' && value !== null) {
-                                            displayValue = <pre className="text-xs text-gray-400 mt-1 bg-black p-2 rounded max-h-40 overflow-auto">{JSON.stringify(value, null, 2)}</pre>;
-                                        } else if (typeof value === 'boolean') {
-                                            displayValue = value ? 'True' : 'False';
-                                        }
-
-                                        return (
-                                            <div key={key} className="flex flex-col border-b border-border/10 pb-2 last:border-0">
-                                                <span className="text-xs text-primary mb-1">{key}</span>
-                                                <div className="text-sm text-gray-300 break-all font-mono">
-                                                    {displayValue}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(4, 8, 14, 0.72)',
+        backdropFilter: 'blur(2px)',
+        zIndex: 80,
+        display: 'flex',
+        justifyContent: 'flex-end',
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          width: 'min(520px, 100vw)',
+          height: '100vh',
+          background: '#0f1520',
+          borderLeft: '1px solid rgba(255,255,255,0.12)',
+          boxShadow: '-20px 0 55px rgba(0,0,0,0.45)',
+          padding: 20,
+          overflowY: 'auto',
+        }}
+      >
+        {loading && !flow ? (
+          <div className="loading-spinner" style={{ paddingTop: 80 }}>
+            <div className="spinner" />
+          </div>
+        ) : flow ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+              <div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <Shield size={18} style={{ color: features.verdict === 'malicious' ? '#ff4b5c' : '#20c997' }} />
+                  <h2 style={{ margin: 0, fontSize: 20, color: '#e8eff9' }}>Flow #{flow.id}</h2>
+                  <span className={features.verdict === 'malicious' ? 'badge badge-danger' : 'badge badge-success'}>
+                    {features.verdict || 'unknown'}
+                  </span>
                 </div>
-            )}
-        </div>
-    );
+                <div style={{ fontSize: 12, color: '#91a3bb' }}>
+                  Captured: {features.timestamp ? new Date(features.timestamp).toLocaleString() : 'N/A'}
+                </div>
+              </div>
+
+              <button className="btn btn-outline btn-sm" onClick={onClose}>
+                <X size={14} /> Close
+              </button>
+            </div>
+
+            <div className="grid-2" style={{ gap: 10 }}>
+              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: 10 }}>
+                <div style={{ fontSize: 11, color: '#8da1bc', marginBottom: 4 }}>Duration</div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#dce7f9', fontWeight: 600 }}>
+                  <Clock size={13} style={{ color: '#00e0ff' }} />
+                  {Number(features.flow_duration || 0).toFixed(4)}s
+                </div>
+              </div>
+
+              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: 10 }}>
+                <div style={{ fontSize: 11, color: '#8da1bc', marginBottom: 4 }}>Total Packets</div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#dce7f9', fontWeight: 600 }}>
+                  <Activity size={13} style={{ color: '#00e0ff' }} />
+                  {features.total_packets || 0}
+                </div>
+              </div>
+            </div>
+
+            <div className="card" style={{ padding: 12 }}>
+              <div className="card-title" style={{ marginBottom: 8 }}>Flow Identity (5-Tuple)</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', rowGap: 6, columnGap: 8, fontSize: 12 }}>
+                <div style={{ color: '#8ca0bb' }}>Source</div>
+                <div className="mono" style={{ color: '#dbe7f7', textAlign: 'right' }}>{features.src_ip}:{features.src_port}</div>
+
+                <div style={{ color: '#8ca0bb' }}>Destination</div>
+                <div className="mono" style={{ color: '#dbe7f7', textAlign: 'right' }}>{features.dst_ip}:{features.dst_port}</div>
+
+                <div style={{ color: '#8ca0bb' }}>Protocol</div>
+                <div className="mono" style={{ color: '#dbe7f7', textAlign: 'right' }}>{getProtoName(features.protocol)}</div>
+
+                {features.matched_sni_domain && features.matched_sni_domain !== 'None' && (
+                  <>
+                    <div style={{ color: '#8ca0bb' }}>SNI / Domain</div>
+                    <div className="mono" style={{ color: '#74d8ff', textAlign: 'right', wordBreak: 'break-all' }}>{features.matched_sni_domain}</div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="card" style={{ padding: 12 }}>
+              <div className="card-title" style={{ marginBottom: 8 }}>Extracted Features</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {Object.entries(features).map(([key, value]) => {
+                  if ([
+                    'src_ip',
+                    'src_port',
+                    'dst_ip',
+                    'dst_port',
+                    'protocol',
+                    'timestamp',
+                    'flow_duration',
+                    'total_packets',
+                    'verdict',
+                    'matched_sni_domain',
+                  ].includes(key)) {
+                    return null;
+                  }
+
+                  if (value === null || value === undefined || value === '' || String(value).toLowerCase() === 'none') {
+                    return null;
+                  }
+
+                  const rendered = typeof value === 'object'
+                    ? JSON.stringify(value, null, 2)
+                    : typeof value === 'boolean'
+                      ? (value ? 'True' : 'False')
+                      : String(value);
+
+                  return (
+                    <div key={key} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: 8 }}>
+                      <div style={{ fontSize: 11, color: '#00e0ff', marginBottom: 4 }}>{key}</div>
+                      {typeof value === 'object' ? (
+                        <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12, color: '#c8d5e8', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: 8 }}>
+                          {rendered}
+                        </pre>
+                      ) : (
+                        <div className="mono" style={{ color: '#c8d5e8', wordBreak: 'break-word' }}>{rendered}</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
