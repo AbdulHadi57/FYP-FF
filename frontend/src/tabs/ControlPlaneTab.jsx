@@ -19,6 +19,7 @@ import {
   Search,
   Filter,
 } from 'lucide-react';
+import { DUMMY_AGENTS, DUMMY_DCS, DUMMY_ACTIONS } from '../utils/dummyData';
 
 const STATUS_BADGES = {
   online: 'badge badge-success',
@@ -115,7 +116,7 @@ const DomainControllersSection = ({ api, dcs, onRefresh }) => {
   };
 
   return (
-    <div className="card">
+    <div className="card glass-panel">
       <SectionHeader icon={Server} title="Domain Controllers" count={dcs.length}>
         <button className="btn btn-outline btn-sm" onClick={onRefresh}>
           <RefreshCw size={12} /> Refresh
@@ -230,7 +231,7 @@ const AgentInventorySection = ({ api, agents, dcs, onRefresh }) => {
   };
 
   return (
-    <div className="card">
+    <div className="card glass-panel">
       <SectionHeader icon={Monitor} title="Agent Inventory" count={agents.length} />
 
       {agents.length === 0 ? (
@@ -447,7 +448,7 @@ const ActiveResponseSection = ({
   };
 
   return (
-    <div className="card">
+    <div className="card glass-panel">
       <SectionHeader icon={ShieldOff} title="Response Operations" count={responseActions.length} />
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1.5fr auto auto', gap: 8, marginBottom: 12 }}>
@@ -570,14 +571,9 @@ export default function ControlPlaneTab({
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [dcRes, agentRes, actionRes] = await Promise.all([
-        axios.get(`${api}/api/control/dcs`).catch(() => ({ data: [] })),
-        axios.get(`${api}/api/control/agents`).catch(() => ({ data: [] })),
-        axios.get(`${api}/api/control/actions?limit=120`).catch(() => ({ data: [] })),
-      ]);
-      setDcs(dcRes.data || []);
-      setAgents(agentRes.data || []);
-      setActions(actionRes.data || []);
+      setDcs(DUMMY_DCS || []);
+      setAgents(DUMMY_AGENTS || []);
+      setActions(DUMMY_ACTIONS || []);
     } catch {
       setDcs([]);
       setAgents([]);
@@ -608,7 +604,7 @@ export default function ControlPlaneTab({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div className="card">
+      <div className="card glass-panel">
         <div className="card-header">
           <div className="card-title">
             <Shield size={16} style={{ color: '#20c997' }} />
@@ -627,7 +623,7 @@ export default function ControlPlaneTab({
       </div>
 
       <div className="grid-4">
-        <div className="kpi-widget">
+        <div className="kpi-widget glass-panel">
           <div className="kpi-icon" style={{ background: 'rgba(84,166,255,0.12)', color: '#54a6ff' }}>
             <Server size={20} />
           </div>
@@ -637,7 +633,7 @@ export default function ControlPlaneTab({
           </div>
         </div>
 
-        <div className="kpi-widget">
+        <div className="kpi-widget glass-panel">
           <div className="kpi-icon" style={{ background: 'rgba(32,201,151,0.12)', color: '#20c997' }}>
             <CheckCircle2 size={20} />
           </div>
@@ -647,7 +643,7 @@ export default function ControlPlaneTab({
           </div>
         </div>
 
-        <div className="kpi-widget">
+        <div className="kpi-widget glass-panel">
           <div className="kpi-icon" style={{ background: 'rgba(0,224,255,0.12)', color: '#00e0ff' }}>
             <Monitor size={20} />
           </div>
@@ -657,7 +653,7 @@ export default function ControlPlaneTab({
           </div>
         </div>
 
-        <div className="kpi-widget">
+        <div className="kpi-widget glass-panel">
           <div className="kpi-icon" style={{ background: 'rgba(255,75,92,0.12)', color: '#ff4b5c' }}>
             <ShieldOff size={20} />
           </div>

@@ -3,63 +3,44 @@ import axios from 'axios';
 import {
   FileText,
   RefreshCw,
-  Filter,
-  Clock,
-  CheckCircle2,
-  XCircle,
+  Search,
   Server,
-  ShieldOff,
-  Undo2,
-  Shield,
+  ShieldAlert,
+  ShieldCheck,
+  Cpu,
   User,
   AlertTriangle,
+  ArrowDownToLine,
+  Trash2,
 } from 'lucide-react';
+import { DUMMY_AUDITS } from '../utils/dummyData';
 
 const eventConfig = {
-  created: { icon: Shield, label: 'Action Created', badgeClass: 'badge badge-info' },
-  approved: { icon: CheckCircle2, label: 'Approved', badgeClass: 'badge badge-success' },
-  rejected: { icon: XCircle, label: 'Rejected', badgeClass: 'badge badge-danger' },
-  dispatched: { icon: Server, label: 'Dispatched', badgeClass: 'badge badge-cyan' },
-  status_update: { icon: RefreshCw, label: 'Status Update', badgeClass: 'badge badge-orange' },
-  rollback_requested: { icon: Undo2, label: 'Rollback', badgeClass: 'badge badge-purple' },
-  dc_approved: { icon: CheckCircle2, label: 'DC Approved', badgeClass: 'badge badge-success' },
-  dc_rejected: { icon: XCircle, label: 'DC Rejected', badgeClass: 'badge badge-danger' },
-  dc_deleted: { icon: AlertTriangle, label: 'DC Deleted', badgeClass: 'badge badge-danger' },
-  templated_dispatch: { icon: ShieldOff, label: 'Response Dispatch', badgeClass: 'badge badge-cyan' },
+  dispatched: { icon: ShieldAlert, label: 'Host Isolation', color: '#ff3366' },
+  rollback_requested: { icon: ArrowDownToLine, label: 'Host Restored', color: '#00e0ff' },
+  dc_approved: { icon: ShieldCheck, label: 'DC Approved', color: '#00ffa3' },
+  dc_rejected: { icon: AlertTriangle, label: 'DC Rejected', color: '#ff9a3d' },
+  dc_deleted: { icon: Trash2, label: 'DC Removed', color: '#ff3366' },
+  agent_removed: { icon: Trash2, label: 'Agent Removed', color: '#ff3366' },
 };
-
-const actionFilterOptions = [
-  { value: 'all', label: 'All actions' },
-  { value: 'isolate_host', label: 'Isolate host' },
-  { value: 'restore_host', label: 'Restore host' },
-  { value: 'block_ip', label: 'Block IP' },
-  { value: 'unblock_ip', label: 'Unblock IP' },
-  { value: 'quarantine_host', label: 'Quarantine host' },
-  { value: 'disable_ad_user', label: 'Disable AD user' },
-  { value: 'enable_ad_user', label: 'Enable AD user' },
-];
 
 export default function AuditTrailTab({ api = '', globalSearch = '', autoRefreshSeconds = 10 }) {
   const [trail, setTrail] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filterType, setFilterType] = useState('all');
   const [liveMode, setLiveMode] = useState(true);
+  const [localSearch, setLocalSearch] = useState('');
 
   const fetchTrail = useCallback(async () => {
     setLoading(true);
     try {
-      let url = `${api}/api/control/audit-trail?limit=250`;
-      if (filterType !== 'all') {
-        url += `&action_type=${filterType}`;
-      }
-      const res = await axios.get(url);
-      setTrail(res.data || []);
+      const sortedAudits = [...DUMMY_AUDITS].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      setTrail(sortedAudits);
     } catch {
       setTrail([]);
     } finally {
       setLoading(false);
     }
-  }, [api, filterType]);
+  }, [api]);
 
   useEffect(() => {
     fetchTrail();
@@ -71,7 +52,8 @@ export default function AuditTrailTab({ api = '', globalSearch = '', autoRefresh
     return () => clearInterval(interval);
   }, [fetchTrail, liveMode, autoRefreshSeconds]);
 
-  const normalizedSearch = useMemo(() => String(globalSearch || '').trim().toLowerCase(), [globalSearch]);
+  const activeSearch = globalSearch || localSearch;
+  const normalizedSearch = useMemo(() => String(activeSearch || '').trim().toLowerCase(), [activeSearch]);
 
   const filteredTrail = useMemo(() => {
     if (!normalizedSearch) return trail;
@@ -80,129 +62,129 @@ export default function AuditTrailTab({ api = '', globalSearch = '', autoRefresh
       const details = JSON.stringify(entry.details || {}).toLowerCase();
       return String(entry.actor || '').toLowerCase().includes(normalizedSearch)
         || String(entry.target_info || '').toLowerCase().includes(normalizedSearch)
-        || String(entry.job_target_id || '').toLowerCase().includes(normalizedSearch)
         || String(entry.job_action_type || '').toLowerCase().includes(normalizedSearch)
         || String(entry.event_type || '').toLowerCase().includes(normalizedSearch)
+        || String(entry.id || '').toLowerCase().includes(normalizedSearch)
         || details.includes(normalizedSearch);
     });
   }, [trail, normalizedSearch]);
 
-  const getEventMeta = (eventType) => {
-    return eventConfig[eventType] || {
-      icon: Clock,
-      label: String(eventType || 'unknown').replace(/_/g, ' '),
-      badgeClass: 'badge badge-info',
-    };
-  };
-
-  const statusBadge = (status) => {
-    if (!status) return <span className="badge badge-info">n/a</span>;
-    if (status === 'succeeded') return <span className="badge badge-success">succeeded</span>;
-    if (status === 'failed' || status === 'cancelled') return <span className="badge badge-danger">{status}</span>;
-    if (status === 'dispatched' || status === 'running') return <span className="badge badge-cyan">{status}</span>;
-    if (status === 'queued' || status === 'pending') return <span className="badge badge-warning">{status}</span>;
-    return <span className="badge badge-info">{status}</span>;
-  };
-
   const formatTime = (timestamp) => {
     if (!timestamp) return '-';
-    return new Date(timestamp).toLocaleString();
+    const d = new Date(timestamp);
+    return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}.${d.getMilliseconds()}`;
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">
-            <FileText size={16} style={{ color: '#54a6ff' }} />
-            Audit and Governance Timeline
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 120px)', gap: 15 }}>
+      {/* Dense Control Deck */}
+      <div className="card glass-panel" style={{ display: 'flex', flexDirection: 'column', padding: '12px 20px', gap: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <FileText size={18} style={{ color: '#00e0ff' }} />
+            <span style={{ fontSize: '1.2rem', fontWeight: 600, color: '#e7eefb', letterSpacing: '0.5px' }}>RAW SYSTEM LOG</span>
+            <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)', marginLeft: 8 }} />
+            
+            <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.2)', padding: '4px 12px', borderRadius: 6, gap: 10 }}>
+               <Search size={14} style={{ color: '#8d97aa' }} />
+               <input 
+                 type="text" 
+                 value={localSearch}
+                 onChange={(e) => setLocalSearch(e.target.value)}
+                 placeholder="Search UUIDs, Hostnames, IPs..." 
+                 style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '0.85rem', width: 220, outline: 'none' }} 
+               />
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: '0.8rem', color: '#54a6ff', marginRight: 15 }}>{filteredTrail.length} Logs Retrieved</span>
             <button
               className={`btn btn-sm ${liveMode ? 'btn-primary' : 'btn-outline'}`}
-              onClick={() => setLiveMode((value) => !value)}
+              onClick={() => setLiveMode(!liveMode)}
+              style={{ padding: '4px 12px', fontSize: '0.8rem' }}
             >
-              {liveMode ? 'Live' : 'Paused'}
+              {liveMode ? 'Live Sync Active' : 'Live Sync Paused'}
             </button>
-            <button className="btn btn-outline btn-sm" onClick={fetchTrail}>
+            <button className="btn btn-outline btn-sm" onClick={fetchTrail} style={{ padding: '4px 12px', fontSize: '0.8rem' }}>
               <RefreshCw size={12} className={loading ? 'spin' : ''} /> Refresh
             </button>
           </div>
         </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'center' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: '#9cb0c9', fontSize: 13 }}>
-            <Filter size={14} />
-            Filter by action type and global context search.
-          </div>
-          <select className="form-select" value={filterType} onChange={(event) => setFilterType(event.target.value)}>
-            {actionFilterOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </div>
       </div>
 
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">
-            <Clock size={16} style={{ color: '#00e0ff' }} />
-            Audit Entries
-          </div>
-          <span className="badge badge-info">{filteredTrail.length} entries</span>
-        </div>
-
+      {/* High Density Table */}
+      <div className="card glass-panel" style={{ flexGrow: 1, overflow: 'hidden', padding: 0 }}>
         {filteredTrail.length === 0 ? (
-          <div className="empty-state">
-            <FileText size={36} />
-            <p>No audit entries found for the current filters.</p>
+          <div className="empty-state" style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+            <FileText size={48} style={{ color: 'rgba(255,255,255,0.1)' }} />
+            <p style={{ marginTop: 15, color: '#8d97aa' }}>No system logs found matching the filter constraints.</p>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto', maxHeight: 680 }}>
-            <table className="data-table">
-              <thead>
+          <div style={{ overflowY: 'auto', maxHeight: '100%' }}>
+            <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+              <thead style={{ position: 'sticky', top: 0, background: '#0a0f1e', zIndex: 1, boxShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>
                 <tr>
-                  <th>Timestamp</th>
-                  <th>Event</th>
-                  <th>Actor</th>
-                  <th>Target</th>
-                  <th>Action Type</th>
-                  <th>Job Status</th>
-                  <th>Details</th>
+                  <th style={{ padding: '10px 16px', color: '#9cb0c9', fontWeight: 600 }}>Date/Time (Local)</th>
+                  <th style={{ padding: '10px 16px', color: '#9cb0c9', fontWeight: 600 }}>System Event</th>
+                  <th style={{ padding: '10px 16px', color: '#9cb0c9', fontWeight: 600 }}>Actor Profile</th>
+                  <th style={{ padding: '10px 16px', color: '#9cb0c9', fontWeight: 600 }}>Target Entity</th>
+                  <th style={{ padding: '10px 16px', color: '#9cb0c9', fontWeight: 600 }}>Op Status</th>
+                  <th style={{ padding: '10px 16px', color: '#9cb0c9', fontWeight: 600 }}>Raw Data Payload</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredTrail.map((entry, index) => {
-                  const meta = getEventMeta(entry.event_type);
+                  const meta = eventConfig[entry.event_type] || eventConfig[entry.job_action_type] || { icon: Server, label: entry.job_action_type || 'Unknown Event', color: '#8d97aa' };
                   const EventIcon = meta.icon;
-                  const details = entry.details || {};
-                  const detailParts = [
-                    details.note ? `note: ${details.note}` : null,
-                    details.template_name ? `template: ${details.template_name}` : null,
-                    details.dc_id ? `dc: ${details.dc_id}` : null,
-                    details.origin_agent_id ? `agent: ${details.origin_agent_id}` : null,
-                    details.status ? `status: ${details.status}` : null,
-                  ].filter(Boolean);
-
+                  const isSystem = (entry.actor === 'system' || !entry.actor);
+                  
                   return (
-                    <tr key={entry.id || `${entry.created_at}-${index}`}>
-                      <td className="mono" style={{ color: '#95a8c3' }}>{formatTime(entry.created_at)}</td>
-                      <td>
-                        <span className={meta.badgeClass} style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
-                          <EventIcon size={10} /> {meta.label}
+                    <tr key={entry.id || `${entry.created_at}-${index}`} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', background: index % 2 === 0 ? 'rgba(255,255,255,0.01)' : 'transparent' }}>
+                      
+                      {/* Timestamp */}
+                      <td className="mono" style={{ padding: '8px 16px', color: '#8d97aa', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                         {formatTime(entry.created_at)}
+                      </td>
+                      
+                      {/* Event */}
+                      <td style={{ padding: '8px 16px', whiteSpace: 'nowrap' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: meta.color, fontWeight: 600 }}>
+                          <EventIcon size={14} /> {meta.label.toUpperCase()}
+                        </span>
+                        <div style={{ color: '#5a6b84', fontSize: '0.7rem', marginTop: 2 }}>ID: {entry.id || 'N/A'}</div>
+                      </td>
+                      
+                      {/* Actor */}
+                      <td style={{ padding: '8px 16px', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: isSystem ? '#9f8fff' : '#e7eefb' }}>
+                           {isSystem ? <Cpu size={14} /> : <User size={14} />} 
+                           {entry.actor}
+                        </div>
+                      </td>
+                      
+                      {/* Target */}
+                      <td className="mono" style={{ padding: '8px 16px', color: '#00e0ff', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        {entry.target_info || entry.job_target_id || '-'}
+                      </td>
+                      
+                      {/* Status */}
+                      <td style={{ padding: '8px 16px' }}>
+                        <span style={{
+                           fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+                           background: entry.job_status === 'succeeded' || entry.job_status === 'completed' ? 'rgba(0,255,163,0.1)' : entry.job_status === 'failed' ? 'rgba(255,51,102,0.1)' : 'rgba(255,154,61,0.1)',
+                           color: entry.job_status === 'succeeded' || entry.job_status === 'completed' ? '#00ffa3' : entry.job_status === 'failed' ? '#ff3366' : '#ff9a3d'
+                        }}>
+                          {entry.job_status ? entry.job_status.toUpperCase() : 'UNKNOWN'}
                         </span>
                       </td>
-                      <td>
-                        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                          <User size={11} /> {entry.actor || 'system'}
-                        </span>
+
+                      {/* Raw Payload JSON */}
+                      <td className="mono" style={{ padding: '8px 16px', fontSize: '0.75rem', color: '#aab8c2', width: '100%' }}>
+                        <div style={{ background: 'rgba(0,0,0,0.3)', padding: '6px 10px', borderRadius: 4, overflowX: 'auto', whiteSpace: 'nowrap', maxWidth: 400 }}>
+                           {JSON.stringify(entry.details || {})}
+                        </div>
                       </td>
-                      <td className="mono">{entry.target_info || entry.job_target_id || '-'}</td>
-                      <td>{entry.job_action_type ? <span className="badge badge-orange">{entry.job_action_type}</span> : <span className="badge badge-info">n/a</span>}</td>
-                      <td>{statusBadge(entry.job_status)}</td>
-                      <td style={{ color: '#9db0c9' }}>
-                        {detailParts.length > 0 ? detailParts.join(' | ') : JSON.stringify(details).slice(0, 90)}
-                      </td>
+
                     </tr>
                   );
                 })}

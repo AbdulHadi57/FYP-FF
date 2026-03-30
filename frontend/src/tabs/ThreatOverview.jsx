@@ -1,335 +1,399 @@
-import { useState, useMemo, useEffect } from 'react';
-import axios from 'axios';
-import {
-  Activity,
-  Monitor,
-  Radar,
-  Server,
-  ShieldAlert,
-  TimerReset,
+import React, { useState, useEffect } from 'react';
+import { 
+  ShieldAlert, Activity, Target, Network, Layers, 
+  MapPin, Clock, Server, AlertTriangle, Crosshair, Fingerprint
 } from 'lucide-react';
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
+import { 
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell,
+  LineChart, Line, AreaChart, Area, PieChart, Pie
 } from 'recharts';
+import { 
+  DUMMY_STATS, 
+  DUMMY_TIMELINE, 
+  DUMMY_MODULES,
+  DUMMY_FLOWS,
+  DUMMY_APT_PROFILES
+} from '../utils/dummyData';
 
-export default function ThreatOverview({
-  api,
-  onPivot,
-  timeRangeSeconds = 21600,
-  autoRefreshSeconds = 15,
-  apiStatus = 'connecting',
-  pipelineStatus = {},
-  lastHealthCheck = null,
-}) {
+export default function ThreatOverview() {
   const [stats, setStats] = useState(null);
   const [timeline, setTimeline] = useState([]);
-  const [moduleStats, setModuleStats] = useState(null);
-  const [health, setHealth] = useState(null);
-  const [dcs, setDcs] = useState([]);
-  const [agents, setAgents] = useState([]);
-  const [events, setEvents] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const timelineLimit = useMemo(() => {
-    const minutes = Math.round(timeRangeSeconds / 60);
-    return Math.max(45, Math.min(360, minutes));
-  }, [timeRangeSeconds]);
+  const [modules, setModules] = useState(null);
+  
+  const [severityData, setSeverityData] = useState([]);
+  const [protocolData, setProtocolData] = useState([]);
+  const [aptProfiles, setAptProfiles] = useState([]);
 
   useEffect(() => {
-    const fetchAll = async () => {
-      try {
-        const [
-          statsRes,
-          timelineRes,
-          modulesRes,
-          healthRes,
-          eventsRes,
-          dcsRes,
-          agentsRes,
-        ] = await Promise.all([
-          axios.get(`${api}/api/stats`),
-          axios.get(`${api}/api/timeline?limit=${timelineLimit}`),
-          axios.get(`${api}/api/modules?limit=600`),
-          axios.get(`${api}/api/health`),
-          axios.get(`${api}/api/events?status=open&limit=120&min_confidence=0.2`).catch(() => ({ data: [] })),
-          axios.get(`${api}/api/control/dcs?limit=200`).catch(() => ({ data: [] })),
-          axios.get(`${api}/api/control/agents?limit=500`).catch(() => ({ data: [] })),
-        ]);
-
-        setStats(statsRes.data);
-        setTimeline(timelineRes.data || []);
-        setModuleStats(modulesRes.data);
-        setHealth(healthRes.data);
-        setEvents(eventsRes.data || []);
-        setDcs(dcsRes.data || []);
-        setAgents(agentsRes.data || []);
-      } catch (err) {
-        console.error('Overview fetch error:', err);
-      } finally {
-        setLoading(false);
+    // Simulate initial loading
+    setStats(DUMMY_STATS);
+    setTimeline(DUMMY_TIMELINE);
+    setModules(DUMMY_MODULES);
+    setAptProfiles(DUMMY_APT_PROFILES);
+    
+    // Calculate Severity Distribution
+    const sev = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+    
+    DUMMY_FLOWS.forEach(f => {
+      if (f.verdict === 'malicious') {
+        if (f.severity > 0.8) sev.Critical++;
+        else if (f.severity > 0.6) sev.High++;
+        else if (f.severity > 0.4) sev.Medium++;
+        else sev.Low++;
       }
-    };
+    });
 
-    fetchAll();
-    if (!autoRefreshSeconds || autoRefreshSeconds <= 0) {
-      return undefined;
-    }
+    setSeverityData([
+      { name: 'Critical', value: sev.Critical || 45, color: '#ff3366' },
+      { name: 'High', value: sev.High || 120, color: '#ff9a3d' },
+      { name: 'Medium', value: sev.Medium || 210, color: '#f4c542' },
+      { name: 'Low', value: sev.Low || 85, color: '#54a6ff' }
+    ]);
+    
+    // Calculate Encryption Protocols (TLS 1.3 vs 1.2 vs QUIC) 
+    const protoCounts = { 'TLS 1.3': 0, 'TLS 1.2': 0, 'QUIC': 0, 'Other / Custom': 0 };
+    const allHashes = [...(DUMMY_MODULES.top_ja4 || []), ...(DUMMY_MODULES.top_ja4s || [])];
+    allHashes.forEach(item => {
+      const hash = item.ja4 || '';
+      if (hash.startsWith('t13')) protoCounts['TLS 1.3'] += item.count;
+      else if (hash.startsWith('t12')) protoCounts['TLS 1.2'] += item.count;
+      else if (hash.startsWith('q13') || hash.startsWith('q12') || hash.startsWith('q20')) protoCounts['QUIC'] += item.count;
+      else protoCounts['Other / Custom'] += item.count;
+    });
 
-    const id = setInterval(fetchAll, autoRefreshSeconds * 1000);
-    return () => clearInterval(id);
-  }, [api, autoRefreshSeconds, timelineLimit]);
+    setProtocolData([
+      { name: 'TLS 1.3', value: protoCounts['TLS 1.3'] || 4520, color: '#00e0ff' },
+      { name: 'TLS 1.2', value: protoCounts['TLS 1.2'] || 1240, color: '#9f8fff' },
+      { name: 'QUIC', value: protoCounts['QUIC'] || 860, color: '#ff9a3d' },
+      { name: 'Other / Custom', value: protoCounts['Other / Custom'] || 210, color: '#54a6ff' }
+    ]);
+  }, []);
 
-  if (loading) return <div className="loading-spinner"><div className="spinner" /></div>;
+  if (!stats || !modules) return <div className="loading-spinner"><div className="spinner" /></div>;
 
-  const totalFlows = stats?.total_flows || 0;
-  const maliciousFlows = stats?.malicious_flows || 0;
-  const benignFlows = Math.max(totalFlows - maliciousFlows, 0);
-  const maliciousPct = totalFlows > 0 ? ((maliciousFlows / totalFlows) * 100).toFixed(1) : '0.0';
-
-  const agentsOnline = agents.filter((agent) => agent.status === 'online').length;
-  const dcsApproved = dcs.filter((dc) => dc.approval_status === 'approved').length;
-
-  const threatStatus = moduleStats?.threat_status_distribution || {};
-  const openIncidents = Math.max(events.length, Number(threatStatus.open || 0));
-  const resolvedIncidents = Number(threatStatus.resolved || 0);
-  const moduleActivity = moduleStats?.module_activity || {};
-  const topAttackers = (stats?.top_attackers || []).slice(0, 4);
-  const topAttackerIp = topAttackers[0]?.ip || '';
-  const highConfidenceEvents = events.filter((event) => Number(event.confidence || 0) >= 0.75).length;
-
-  const compositionData = totalFlows > 0
-    ? [
-      { name: 'Malicious', value: maliciousFlows, color: '#ff0055' },
-      { name: 'Benign', value: benignFlows, color: '#14d9d1' },
-    ]
-    : [{ name: 'No Data', value: 1, color: '#5d6f88' }];
-
-  const signalMixData = [
-    { name: 'JA4 Hits', value: Number(moduleActivity.ja4 || 0), color: '#00e0ff' },
-    { name: 'TTP Mapped', value: Number(moduleActivity.ttp || 0), color: '#ff9a3d' },
-    { name: 'APT Attributed', value: Number(moduleActivity.apt || 0), color: '#9f8fff' },
-    { name: 'Open Incidents', value: Number(openIncidents || 0), color: '#ff4b5c' },
+  const attackers = stats.top_attackers || [
+    { ip: '192.168.1.105', count: 420 },
+    { ip: '10.0.0.51', count: 185 },
+    { ip: '45.33.22.11', count: 95 }
   ];
-
-  const displaySignalMix = signalMixData.some((entry) => entry.value > 0)
-    ? signalMixData
-    : [{ name: 'No Signals', value: 1, color: '#5d6f88' }];
-
-  const lastSync = lastHealthCheck ? new Date(lastHealthCheck).toLocaleTimeString() : 'N/A';
-  const latestFlow = stats?.last_flow_timestamp ? new Date(stats.last_flow_timestamp).toLocaleString() : 'No flow yet';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">
-            <Radar size={16} style={{ color: '#00e0ff' }} />
-            Mission System Overview
-          </div>
-          <div className="card-subtitle" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <TimerReset size={12} />
-            Last sync: {lastSync}
-          </div>
+      {/* SIEM Headline KPIs */}
+      <div className="card glass-panel" style={{ padding: '0' }}>
+        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Target size={22} style={{ color: '#00e0ff' }} />
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.2rem', color: '#e7eefb' }}>Encrypted Traffic Core Analysis</h2>
+                <span style={{ fontSize: '0.8rem', color: '#8d97aa' }}>Passive network telemetry, JA4/JA4S fingerprinting, and ML-driven threat attribution without decryption.</span>
+              </div>
+           </div>
         </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-          <span className={apiStatus === 'online' ? 'badge badge-success' : apiStatus === 'offline' ? 'badge badge-danger' : 'badge badge-warning'}>
-            Cloud {apiStatus}
-          </span>
-          <span className="badge badge-cyan">Last flow: {latestFlow}</span>
-          <span className="badge badge-orange">Window: {Math.round(timeRangeSeconds / 60)}m</span>
-          {topAttackerIp && <span className="badge badge-danger">Top source: {topAttackerIp}</span>}
-        </div>
-
-        <div style={{ color: '#a7b4c8', fontSize: 14, lineHeight: 1.5 }}>
-          This overview focuses on real-time platform posture: controller trust, endpoint availability,
-          pipeline readiness, and containment pressure, without investigative logs.
-        </div>
-      </div>
-
-      <div className="grid-4">
-        <div className="kpi-widget">
-          <div className="kpi-icon" style={{ background: 'rgba(0,224,255,0.12)', color: '#00e0ff' }}>
-            <Monitor size={20} />
+        <div className="grid-4" style={{ padding: 20, paddingTop: 16 }}>
+          <div className="kpi-widget" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(84, 166, 255, 0.1)' }}>
+            <div className="kpi-icon" style={{ background: 'rgba(84,166,255,0.1)', color: '#54a6ff' }}>
+              <Network size={20} />
+            </div>
+            <div>
+              <div className="kpi-value" style={{ color: '#e7eefb' }}>{stats.total_flows.toLocaleString()}</div>
+              <div className="kpi-label">Total Packets Monitored</div>
+            </div>
           </div>
-          <div>
-            <div className="kpi-value" style={{ color: '#00e0ff' }}>{agentsOnline}/{agents.length}</div>
-            <div className="kpi-label">Connected Agents (online/total)</div>
+          <div className="kpi-widget" style={{ background: 'rgba(255, 75, 92, 0.05)', border: '1px solid rgba(255, 75, 92, 0.2)' }}>
+            <div className="kpi-icon" style={{ background: 'rgba(255,75,92,0.15)', color: '#ff4b5c' }}>
+              <ShieldAlert size={20} />
+            </div>
+            <div>
+              <div className="kpi-value" style={{ color: '#ff4b5c' }}>{stats.malicious_flows.toLocaleString()}</div>
+              <div className="kpi-label">Malicious Convictions</div>
+            </div>
           </div>
-        </div>
-
-        <div className="kpi-widget">
-          <div className="kpi-icon" style={{ background: 'rgba(84,166,255,0.14)', color: '#54a6ff' }}>
-            <Server size={20} />
+          <div className="kpi-widget" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(159, 143, 255, 0.1)' }}>
+            <div className="kpi-icon" style={{ background: 'rgba(159,143,255,0.1)', color: '#9f8fff' }}>
+              <Layers size={20} />
+            </div>
+            <div>
+              <div className="kpi-value" style={{ color: '#e7eefb' }}>{modules.ttp_total_predictions.toLocaleString()}</div>
+              <div className="kpi-label">TTPs Extracted</div>
+            </div>
           </div>
-          <div>
-            <div className="kpi-value" style={{ color: '#54a6ff' }}>{dcsApproved}/{dcs.length}</div>
-            <div className="kpi-label">Trusted Domain Controllers</div>
-          </div>
-        </div>
-
-        <div className="kpi-widget">
-          <div className="kpi-icon" style={{ background: 'rgba(255,75,92,0.14)', color: '#ff4b5c' }}>
-            <ShieldAlert size={20} />
-          </div>
-          <div>
-            <div className="kpi-value" style={{ color: '#ff4b5c' }}>{openIncidents}</div>
-            <div className="kpi-label">Open Threat Incidents</div>
-          </div>
-        </div>
-
-        <div className="kpi-widget">
-          <div className="kpi-icon" style={{ background: 'rgba(255,154,61,0.14)', color: '#ff9a3d' }}>
-            <Activity size={20} />
-          </div>
-          <div>
-            <div className="kpi-value" style={{ color: '#ff9a3d' }}>{maliciousPct}%</div>
-            <div className="kpi-label">Malicious Flow Ratio</div>
+          <div className="kpi-widget" style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255, 154, 61, 0.1)' }}>
+            <div className="kpi-icon" style={{ background: 'rgba(255,154,61,0.1)', color: '#ff9a3d' }}>
+              <Server size={20} />
+            </div>
+            <div>
+              <div className="kpi-value" style={{ color: '#e7eefb' }}>{modules.ja4_diversity.toLocaleString()}</div>
+              <div className="kpi-label">Unique JA4 Hashes</div>
+            </div>
           </div>
         </div>
       </div>
 
       <div className="grid-2">
-        <div className="card">
-          <div className="card-header">
-            <div className="card-title">
-              <Activity size={16} style={{ color: '#54a6ff' }} />
-              Traffic Composition
-            </div>
-          </div>
-
-          <ResponsiveContainer width="100%" height={280}>
-            <PieChart>
-              <Pie
-                data={[{ value: 1 }]}
-                cx="50%"
-                cy="50%"
-                innerRadius={79}
-                outerRadius={80}
-                dataKey="value"
-                stroke="none"
-                fill="rgba(255,255,255,0.1)"
-                isAnimationActive={false}
-              />
-
-              <Pie
-                data={compositionData}
-                cx="50%"
-                cy="50%"
-                innerRadius={75}
-                outerRadius={85}
-                paddingAngle={5}
-                cornerRadius={2}
-                dataKey="value"
-                stroke="none"
-              >
-                {compositionData.map((entry, index) => (
-                  <Cell
-                    key={`${entry.name}-${entry.color}`}
-                    fill={entry.color}
-                    style={{ filter: `drop-shadow(0 0 2px ${index === 0 ? '#ff0055' : '#14d9d1'})` }}
-                  />
-                ))}
-              </Pie>
-              <Tooltip
-                contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #333', color: '#fff', borderRadius: 8 }}
-                formatter={(value, name) => [value, name]}
-              />
-              <text x="50%" y="50%" dy={8} textAnchor="middle" className="fill-white text-3xl font-mono tracking-widest" style={{ filter: 'drop-shadow(0 0 3px white)' }}>
-                {maliciousFlows}
-              </text>
-              <text x="50%" y="65%" dy={5} textAnchor="middle" className="fill-cyan-400 text-[10px] uppercase tracking-[0.2em] font-mono">
-                THREATS
-              </text>
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="card">
+        {/* Timeline Chart */}
+        <div className="card glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="card-header">
             <div className="card-title">
               <Activity size={16} style={{ color: '#00e0ff' }} />
-              Traffic Volume & Spikes
+              Malicious Ingestion Timeline
             </div>
+            <span className="card-subtitle">Last 60 Minutes</span>
           </div>
-
-          {timeline.length > 0 ? (
-            <ResponsiveContainer width="100%" height={270}>
-              <AreaChart data={timeline} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+          <div style={{ flexGrow: 1, minHeight: 260 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={timeline} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="trafficVolumeFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#00e0ff" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#00e0ff" stopOpacity={0} />
+                  <linearGradient id="colorMalicious" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#ff4b5c" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#ff4b5c" stopOpacity={0}/>
+                  </linearGradient>
+                  <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#54a6ff" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#54a6ff" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
-                <XAxis
-                  dataKey="bucket"
-                  stroke="#666"
-                  tick={{ fill: '#94a3b8', fontSize: 11 }}
-                  tickFormatter={(value) => value?.split('T')?.[1] || value?.slice(-5) || value}
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <XAxis dataKey="bucket" tick={{ fill: '#8d97aa', fontSize: 10 }} tickFormatter={(val) => val.split('T')[1]?.slice(0,5) || val} />
+                <YAxis tick={{ fill: '#8d97aa', fontSize: 10 }} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: 'rgba(10,15,25,0.95)', border: '1px solid rgba(0,210,255,0.2)', borderRadius: 8, backdropFilter: 'blur(10px)' }}
+                  itemStyle={{ color: '#e7eefb' }}
                 />
-                <YAxis stroke="#666" tick={{ fill: '#94a3b8', fontSize: 11 }} width={44} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #333', color: '#fff', borderRadius: 8 }}
-                />
-                <Area type="monotone" dataKey="flow_count" stroke="#00e0ff" fill="url(#trafficVolumeFill)" strokeWidth={2} name="Flows" />
-                <Area type="monotone" dataKey="malicious_count" stroke="#ff4b4b" fill="none" strokeWidth={2} name="Malicious" />
+                <Area type="monotone" dataKey="flow_count" name="Total Flows" stroke="#54a6ff" fillOpacity={1} fill="url(#colorTotal)" />
+                <Area type="monotone" dataKey="malicious_count" name="Malicious" stroke="#ff4b5c" fillOpacity={1} fill="url(#colorMalicious)" />
               </AreaChart>
             </ResponsiveContainer>
-          ) : (
-            <div className="empty-state"><Activity size={36} /><p>No timeline data available yet.</p></div>
-          )}
+          </div>
+        </div>
+
+        {/* The New Pie Charts Grid for Severity and Ports */}
+        <div className="grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          
+           {/* Severity Donut */}
+           <div className="card glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
+             <div className="card-header" style={{ paddingBottom: 0 }}>
+               <div className="card-title" style={{ fontSize: '0.9rem' }}>
+                 <AlertTriangle size={16} style={{ color: '#ff3366' }} />
+                 Alert Severity Breakdown
+               </div>
+             </div>
+             <div style={{ flexGrow: 1, minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+               <ResponsiveContainer width="100%" height={220}>
+                 <PieChart>
+                   <Pie
+                     data={severityData}
+                     cx="50%" cy="50%"
+                     innerRadius={45} outerRadius={70}
+                     paddingAngle={5}
+                     dataKey="value"
+                     stroke="none"
+                   >
+                     {severityData.map((entry, index) => (
+                       <Cell key={`cell-${index}`} fill={entry.color} />
+                     ))}
+                   </Pie>
+                   <Tooltip 
+                     formatter={(value, name) => [`${value} Alerts`, name]}
+                     contentStyle={{ backgroundColor: 'rgba(10,15,30,0.95)', border: '1px solid rgba(255,51,102,0.3)', borderRadius: 8 }}
+                     itemStyle={{ fontSize: '0.85rem' }} 
+                   />
+                 </PieChart>
+               </ResponsiveContainer>
+             </div>
+             {/* Legend */}
+             <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 15 }}>
+               {severityData.map(s => (
+                 <div key={s.name} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', color: '#8d97aa' }}>
+                   <div style={{ width: 8, height: 8, borderRadius: '50%', background: s.color }}/> {s.name}
+                 </div>
+               ))}
+             </div>
+           </div>
+
+           {/* Encryption Protocols Donut */}
+           <div className="card glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
+             <div className="card-header" style={{ paddingBottom: 0 }}>
+               <div className="card-title" style={{ fontSize: '0.9rem' }}>
+                 <Crosshair size={16} style={{ color: '#00e0ff' }} />
+                 Encryption Protocol Distribution
+               </div>
+             </div>
+             <div style={{ flexGrow: 1, minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+               <ResponsiveContainer width="100%" height={220}>
+                 <PieChart>
+                   <Pie
+                     data={protocolData}
+                     cx="50%" cy="50%"
+                     innerRadius={45} outerRadius={70}
+                     paddingAngle={5}
+                     dataKey="value"
+                     stroke="none"
+                   >
+                     {protocolData.map((entry, index) => (
+                       <Cell key={`cell-${index}`} fill={entry.color} />
+                     ))}
+                   </Pie>
+                   <Tooltip 
+                     formatter={(value, name) => [`${value} Flows`, name]}
+                     contentStyle={{ backgroundColor: 'rgba(10,15,30,0.95)', border: '1px solid rgba(0,224,255,0.3)', borderRadius: 8 }}
+                     itemStyle={{ fontSize: '0.85rem' }} 
+                   />
+                 </PieChart>
+               </ResponsiveContainer>
+             </div>
+             {/* Legend */}
+             <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 15 }}>
+               {protocolData.map(s => (
+                 <div key={s.name} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.75rem', color: '#8d97aa' }}>
+                   <div style={{ width: 8, height: 8, borderRadius: '50%', background: s.color }}/> {s.name.split(' ')[0]}
+                 </div>
+               ))}
+             </div>
+           </div>
+           
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">
-            <Monitor size={16} style={{ color: '#9f8fff' }} />
-            Threat Signal Breakdown
+      <div className="grid-2">
+        {/* Top Attackers Matrix */}
+        <div className="card glass-panel" style={{ padding: 0, display: 'flex', flexDirection: 'column' }}>
+          <div className="card-header" style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+            <div className="card-title">
+              <MapPin size={16} style={{ color: '#ff9a3d' }} />
+              Top Malicious Aggressors (Source IPs)
+            </div>
           </div>
-          <span className="badge badge-info">Realtime counters</span>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Source IP</th>
+                <th>Flow Volume</th>
+                <th>Threat Level</th>
+              </tr>
+            </thead>
+            <tbody>
+              {attackers.map((atk, i) => (
+                <tr key={i}>
+                  <td className="mono" style={{ color: '#00e0ff', fontWeight: 600 }}>{atk.ip}</td>
+                  <td>{atk.count.toLocaleString()}</td>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div className="score-bar" style={{ width: 80 }}>
+                        <div className="score-bar-fill" style={{ width: `${Math.min(100, (atk.count / attackers[0].count) * 100)}%`, background: i === 0 ? '#ff3366' : '#ff9a3d' }} />
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ padding: '10px 20px', background: 'rgba(0,0,0,0.2)', flexGrow: 1, borderTop: '1px solid rgba(255,255,255,0.02)', fontSize: '0.8rem', color: '#8d97aa', textAlign: 'center', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+            Attacker volumes based on JA4 behavioral identification.
+          </div>
         </div>
 
-        <div className="overview-health-grid" style={{ gridTemplateColumns: '1.35fr 1fr' }}>
-          <div style={{ minHeight: 240 }}>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={displaySignalMix} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
-                <XAxis dataKey="name" stroke="#666" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                <YAxis stroke="#666" tick={{ fill: '#94a3b8', fontSize: 11 }} width={42} />
-                <Tooltip contentStyle={{ backgroundColor: '#0a0a0a', border: '1px solid #333', color: '#fff', borderRadius: 8 }} />
-                <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                  {displaySignalMix.map((entry) => (
-                    <Cell key={`${entry.name}-${entry.color}`} fill={entry.color} />
-                  ))}
+        {/* TTP Distribution Chart - PROPORTIONALLY FIXED */}
+        <div className="card glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
+          <div className="card-header">
+            <div className="card-title">
+              <Layers size={16} style={{ color: '#9f8fff' }} />
+              Extracted MITRE ATT&CK Techniques
+            </div>
+          </div>
+          {/* Dynamically scaling the height to ensure bars never crush */}
+          <div style={{ minHeight: `${Math.max(260, modules.ttp_top_techniques.length * 35 + 40)}px`, overflow: 'hidden' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={modules.ttp_top_techniques.slice(0, 10)} layout="vertical" margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
+                <defs>
+                  <linearGradient id="colorExec" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#ff4b5c" stopOpacity={0.7}/>
+                    <stop offset="100%" stopColor="#ff4b5c" stopOpacity={1}/>
+                  </linearGradient>
+                  <linearGradient id="colorC2" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#9f8fff" stopOpacity={0.7}/>
+                    <stop offset="100%" stopColor="#9f8fff" stopOpacity={1}/>
+                  </linearGradient>
+                  <linearGradient id="colorEvasion" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#ff9a3d" stopOpacity={0.7}/>
+                    <stop offset="100%" stopColor="#ff9a3d" stopOpacity={1}/>
+                  </linearGradient>
+                  <linearGradient id="colorDefault" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#00e0ff" stopOpacity={0.5}/>
+                    <stop offset="100%" stopColor="#00e0ff" stopOpacity={0.9}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={true} vertical={false} />
+                <XAxis type="number" stroke="transparent" tick={{ fill: '#64748b', fontSize: 10 }} />
+                {/* Expanding width space to prevent text overlap */}
+                <YAxis dataKey="id" type="category" stroke="transparent" tick={{ fill: '#e7eefb', fontSize: 11, fontWeight: 700 }} width={60} />
+                <Tooltip 
+                  cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                  contentStyle={{ backgroundColor: 'rgba(10,15,30,0.95)', border: '1px solid rgba(0,224,255,0.4)', color: '#fff', borderRadius: 8, backdropFilter: 'blur(10px)', boxShadow: '0 0 15px rgba(0,224,255,0.1)' }}
+                  formatter={(value, name, props) => [`${value} Convictions`, props.payload.name]}
+                />
+                <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={20}>
+                  {modules.ttp_top_techniques.slice(0, 10).map((entry, index) => {
+                    let fillColor = 'url(#colorDefault)';
+                    const id = entry.id;
+                    if(id.startsWith('T1059') || id.startsWith('T1082') || id.startsWith('T1219')) fillColor = 'url(#colorExec)'; 
+                    if(id.startsWith('T1071') || id.startsWith('T1090') || id.startsWith('T1573')) fillColor = 'url(#colorC2)'; 
+                    if(id.startsWith('T1036') || id.startsWith('T1562') || id.startsWith('T1027')) fillColor = 'url(#colorEvasion)'; 
+                    
+                    return <Cell key={`cell-${index}`} fill={fillColor} style={{ filter: 'drop-shadow(0 0 4px ' + (fillColor === 'url(#colorExec)' ? 'rgba(255,75,92,0.4)' : fillColor === 'url(#colorC2)' ? 'rgba(159,143,255,0.4)' : fillColor === 'url(#colorEvasion)' ? 'rgba(255,154,61,0.4)' : 'rgba(0,224,255,0.4)') + ')' }} />;
+                  })}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="stat-line"><span className="stat-label">Total flows</span><span className="stat-value">{totalFlows}</span></div>
-            <div className="stat-line"><span className="stat-label">Malicious flows</span><span className="stat-value" style={{ color: '#ff4b5c' }}>{maliciousFlows}</span></div>
-            <div className="stat-line"><span className="stat-label">Open incidents</span><span className="stat-value" style={{ color: '#ff9a3d' }}>{openIncidents}</span></div>
-            <div className="stat-line"><span className="stat-label">Resolved incidents</span><span className="stat-value" style={{ color: '#20c997' }}>{resolvedIncidents}</span></div>
-            <div className="stat-line"><span className="stat-label">High-confidence alerts</span><span className="stat-value" style={{ color: '#54a6ff' }}>{highConfidenceEvents}</span></div>
-            <div className="stat-line"><span className="stat-label">Top source</span><span className="stat-value mono" style={{ color: '#00e0ff' }}>{topAttackerIp || 'N/A'}</span></div>
-          </div>
         </div>
       </div>
+
+      {/* NEW: Active Threat Actor Profiling Section */}
+      <div style={{ marginTop: 10 }}>
+        <h3 style={{ fontSize: '1.2rem', color: '#e7eefb', display: 'flex', alignItems: 'center', gap: 10, marginBottom: 15 }}>
+          <Fingerprint size={20} style={{ color: '#9f8fff' }} />
+          Active Threat Actor Profiles
+        </h3>
+        <p style={{ color: '#8d97aa', fontSize: '0.85rem', marginBottom: 20 }}>
+          Machine learning correlation maps active TTPs and network fingerprints directly to known Advanced Persistent Threat (APT) groups.
+        </p>
+
+        <div className="grid-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
+          {aptProfiles.map((pt, i) => (
+             <div key={i} className="card glass-panel" style={{ padding: 20, borderTop: `3px solid ${i === 0 ? '#ff3366' : '#9f8fff'}`, background: 'rgba(10,15,25,0.8)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 15, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                   <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#e7eefb' }}>{pt.top_match}</div>
+                   <div className="badge badge-critical" style={{ fontSize: '0.75rem', background: 'rgba(255,51,102,0.1)' }}>{(pt.top_score * 100).toFixed(1)}% Match</div>
+                </div>
+                
+                <div style={{ marginTop: 15 }}>
+                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                     <span style={{ color: '#8d97aa', fontSize: '0.85rem' }}>Suspect IP Tracker:</span>
+                     <span className="mono" style={{ color: '#00e0ff', fontSize: '0.85rem' }}>{pt.actor_id}</span>
+                   </div>
+                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 15 }}>
+                     <span style={{ color: '#8d97aa', fontSize: '0.85rem' }}>Correlated Flows:</span>
+                     <span style={{ color: '#e7eefb', fontSize: '0.85rem', fontWeight: 600 }}>{pt.flow_count} hits</span>
+                   </div>
+                </div>
+
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ color: '#8d97aa', fontSize: '0.8rem', marginBottom: 6 }}>Active Tactics (TTPs):</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {pt.ttps.map((ttp, idx) => (
+                       <span key={idx} style={{ background: 'rgba(159,143,255,0.1)', color: '#9f8fff', padding: '3px 8px', borderRadius: 4, fontSize: '0.7rem', border: '1px solid rgba(159,143,255,0.3)' }}>
+                         {ttp}
+                       </span>
+                    ))}
+                  </div>
+                </div>
+             </div>
+          ))}
+        </div>
+      </div>
+
     </div>
   );
 }

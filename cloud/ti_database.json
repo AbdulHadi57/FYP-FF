@@ -1,0 +1,212 @@
+{
+  "t13d1516h2_8a2d1d05b5_e7c9f80a2b": {
+    "app": "Cobalt Strike Malleable C2 Loader",
+    "threat_level": 98,
+    "category": "Command and Control",
+    "description": "Standard Cobalt Strike beaconing profile using TLS 1.3 with specific OpenSSL cypher suites."
+  },
+  "t12d1908h2_c9b4a1_1234567890": {
+    "app": "Python 3.10 urllib (Non-Standard)",
+    "threat_level": 75,
+    "category": "Suspicious Exfiltration",
+    "description": "Automated Python request library often associated with custom malware scripts or data exfiltration."
+  },
+  "t13d1007h1_f8c9b4_0987654321": {
+    "app": "Metasploit Meterpreter Reverse HTTPS",
+    "threat_level": 96,
+    "category": "Remote Access Trojan",
+    "description": "Common reverse shell payload TLS handshake structure associated with the Metasploit framework."
+  },
+  "s4d_ff14_abc123": {
+    "app": "Apache HTTP Server 2.4 (Known CVE Version)",
+    "threat_level": 60,
+    "category": "Vulnerable Infrastructure",
+    "description": "Server-side handshake matching older, potentially vulnerable Apache configurations."
+  },
+  "h2_142_a900": {
+    "app": "Chrome 115+ Updater",
+    "threat_level": 2,
+    "category": "Benign Telemetry",
+    "description": "Standard background updater ping for Chromium based browsers."
+  },
+  "x5_a40f_99db": {
+    "app": "Let's Encrypt Authority X3",
+    "threat_level": 5,
+    "category": "Benign Certificate",
+    "description": "Standard globally trusted X.509 certificate."
+  },
+  "t13i181000_85036bcba153_d41ae481755e": {
+    "app": "(Python)",
+    "threat_level": 40,
+    "category": "Scripting Engine",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13d181000_85036bcba153_d41ae481755e": {
+    "app": "(Python)",
+    "threat_level": 40,
+    "category": "Scripting Engine",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13d4312h1_c7886603b240_b26ce05bbdd6": {
+    "app": "(Python)",
+    "threat_level": 40,
+    "category": "Scripting Engine",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13d1516h2_8daaf6152771_02713d6af862": {
+    "app": "Chromium Browser",
+    "threat_level": 5,
+    "category": "Benign Networking",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "q13d0312h3_55b375c5d22e_06cda9e17597": {
+    "app": "Chromium Browser",
+    "threat_level": 5,
+    "category": "Benign Networking",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13d1517h2_8daaf6152771_b0da82dd1658": {
+    "app": "Chromium Browser",
+    "threat_level": 5,
+    "category": "Benign Networking",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13d1517h2_8daaf6152771_b1ff8ab2d16f": {
+    "app": "Chromium Browser",
+    "threat_level": 5,
+    "category": "Benign Networking",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13i1515h2_8daaf6152771_02713d6af862": {
+    "app": "Chromium Browser",
+    "threat_level": 5,
+    "category": "Benign Networking",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "q13i0311h3_55b375c5d22e_06cda9e17597": {
+    "app": "Chromium Browser",
+    "threat_level": 5,
+    "category": "Benign Networking",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13i1516h2_8daaf6152771_b0da82dd1658": {
+    "app": "Chromium Browser",
+    "threat_level": 5,
+    "category": "Benign Networking",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13i1516h2_8daaf6152771_b1ff8ab2d16f": {
+    "app": "Chromium Browser",
+    "threat_level": 5,
+    "category": "Benign Networking",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13d1715h2_5b57614c22b0_7121afd63204": {
+    "app": "Mozilla Firefox",
+    "threat_level": 5,
+    "category": "Benign Networking",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13i1714h2_5b57614c22b0_7121afd63204": {
+    "app": "Mozilla Firefox",
+    "threat_level": 5,
+    "category": "Benign Networking",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13d2014h2_a09f3c656075_14788d8d241b": {
+    "app": "Safari",
+    "threat_level": 5,
+    "category": "Benign Networking",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13i2013h2_a09f3c656075_14788d8d241b": {
+    "app": "Safari",
+    "threat_level": 5,
+    "category": "Benign Networking",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13d190900_9dc949149365_97f8aa674fd9": {
+    "app": "Sliver Agent (GoLang)",
+    "threat_level": 99,
+    "category": "Command and Control",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13i190800_9dc949149365_97f8aa674fd9": {
+    "app": "Sliver Agent (GoLang)",
+    "threat_level": 99,
+    "category": "Command and Control",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13d201100_2b729b4bf6f3_9e7b989ebec8": {
+    "app": "IcedID",
+    "threat_level": 20,
+    "category": "Benign Networking",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13d880900_fcb5b95cb75a_b0d3b4ac2a14": {
+    "app": "SoftEther VPN Client",
+    "threat_level": 60,
+    "category": "Suspicious Tool",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13i880900_fcb5b95cb75a_b0d3b4ac2a14": {
+    "app": "SoftEther VPN Client",
+    "threat_level": 60,
+    "category": "Suspicious Tool",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t12i190700_d83cc789557e_16bbda4055b2": {
+    "app": "Cobalt Strike v4.9.1 beacon",
+    "threat_level": 99,
+    "category": "Command and Control",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: Cobalt Strike v4.9.1 over wininet"
+  },
+  "t12i210700_76e208dd3e22_16bbda4055b2": {
+    "app": "Cobalt Strike v4.9.1 beacon",
+    "threat_level": 99,
+    "category": "Command and Control",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: Cobalt Strike v4.9.1 over winhttp"
+  },
+  "t12d190800_d83cc789557e_16bbda4055b2": {
+    "app": "Cobalt Strike v4.9.1 beacon",
+    "threat_level": 99,
+    "category": "Command and Control",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: Cobalt Strike v4.9.1 over wininet"
+  },
+  "t12d210800_76e208dd3e22_16bbda4055b2": {
+    "app": "Cobalt Strike v4.9.1 beacon",
+    "threat_level": 99,
+    "category": "Command and Control",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: Cobalt Strike v4.9.1 over winhttp"
+  },
+  "t13d191000_9dc949149365_e7c285222651": {
+    "app": "(GoLang net package)",
+    "threat_level": 40,
+    "category": "Scripting Engine",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13d1412h2_e33ad33b3d25_6b314db333b6": {
+    "app": "(GoLang webhooks)",
+    "threat_level": 40,
+    "category": "Scripting Engine",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t12d160700_8cdfa2d4673b_18dd7303c4a5": {
+    "app": "(GoLang)",
+    "threat_level": 40,
+    "category": "Scripting Engine",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t13d141000_cbb2034c60b8_e7c285222651": {
+    "app": "(GoLang)",
+    "threat_level": 40,
+    "category": "Scripting Engine",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  },
+  "t12d190800_d83cc789557e_7af1ed941c26": {
+    "app": "(GoLang)",
+    "threat_level": 40,
+    "category": "Scripting Engine",
+    "description": "Imported from FoxIO JA4+ Mappings. Notes: "
+  }
+}

@@ -18,6 +18,8 @@ from models import (
     TTPStatsResponse, APTStatsResponse,
 )
 from control_plane import router as control_plane_router, compat_router as control_plane_compat_router
+from ja4_reputation import ja4_engine
+from ja4_sync import start_background_sync
 
 import os
 
@@ -62,6 +64,7 @@ def ensure_websocket_backend_available() -> None:
             "No WebSocket backend is available for Uvicorn/FastAPI. "
             "Install dependencies with: pip install 'uvicorn[standard]'"
         )
+    start_background_sync(interval_hours=6)
 
 # Enable CORS for React frontend
 _cors_origins = os.getenv("AEGIS_CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
@@ -409,7 +412,14 @@ def get_module_stats(limit: int = 1000):
                 pass
 
         def get_top(counter):
-            return [{"hash": k, "count": v} for k, v in counter.most_common(20)]
+            top_list = []
+            for k, v in counter.most_common(20):
+                rep = ja4_engine.get_reputation(k)
+                if rep:
+                    top_list.append({"hash": k, "count": v, "app": rep.get("app"), "threat_level": rep.get("threat_level"), "category": rep.get("category")})
+                else:
+                    top_list.append({"hash": k, "count": v, "app": "Unknown Fingerprint", "threat_level": 20, "category": "Unclassified"})
+            return top_list
 
         # JA4 malicious/benign counts
         ja4_mal_count = 0
@@ -464,18 +474,23 @@ def get_module_stats(limit: int = 1000):
         for row in ja4_rows:
             try:
                 f = json.loads(row["features_json"])
+                ja4_hash = f.get("ja4", "N/A")
+                rep = ja4_engine.get_reputation(ja4_hash) if ja4_hash != "N/A" else None
                 ja4_mal_flows.append({
                     "id": row["id"],
                     "src_ip": row["src_ip"],
                     "dst_ip": row["dst_ip"],
                     "captured_at": row["captured_at"],
                     "verdict": row["verdict"],
-                    "ja4": f.get("ja4", "N/A"),
+                    "ja4": ja4_hash,
                     "protocol": row["protocol"],
                     "ja4_sni": f.get("ja4_sni", "N/A"),
                     "sni": f.get("matched_sni_domain", "N/A"),
                     "ja4_version": f.get("ja4_version", "N/A"),
-                    "ja4_alpn": f.get("ja4_alpn", "N/A")
+                    "ja4_alpn": f.get("ja4_alpn", "N/A"),
+                    "app": rep.get("app") if rep else "Unknown Fingerprint",
+                    "threat_level": rep.get("threat_level") if rep else 20,
+                    "category": rep.get("category") if rep else "Unclassified"
                 })
             except:
                 pass
