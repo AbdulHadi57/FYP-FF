@@ -1,6 +1,7 @@
 scapy
 pandas
 numpy
+scipy
 scikit-learn
 joblib
 requests

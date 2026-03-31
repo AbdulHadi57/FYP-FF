@@ -27,7 +27,7 @@ export default function ThreatIntelTab() {
           ]);
           if (active) {
             setC2Intel(c2Res.data);
-            setAptProfiles(aptRes.data.profiles || []);
+            setAptProfiles(aptRes.data.actor_profiles || []);
             setMaliciousFlows((flowsRes.data || []).filter(f => f.verdict === 'malicious'));
             setLoadingC2(false);
             setLoadingIntel(false);
