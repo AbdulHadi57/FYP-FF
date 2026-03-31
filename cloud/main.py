@@ -769,6 +769,12 @@ def get_apt_stats(window: int = 3600, top_n: int = 5):
                 "top_match": top_match_name,
                 "top_score": round(top_match_score, 4),
                 "ttps": attr.ttps_observed[:10],  # Limit for UI
+                "top_matches": [
+                    {
+                        "apt_name": m.apt_name,
+                        "combined_score": round(m.combined_score, 4)
+                    } for m in attr.top_matches
+                ]
             })
 
             for m in attr.top_matches:

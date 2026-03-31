@@ -22,13 +22,13 @@ export default function ThreatIntelTab() {
        try {
           const [c2Res, aptRes, flowsRes] = await Promise.all([
              axios.get('http://localhost:8000/api/c2-intel'),
-             axios.get('http://localhost:8000/api/apt-stats'),
+             axios.get('http://localhost:8000/api/apt-stats?window=900'),
              axios.get('http://localhost:8000/api/flows?limit=300')
           ]);
           if (active) {
             setC2Intel(c2Res.data);
             setAptProfiles(aptRes.data.actor_profiles || []);
-            setMaliciousFlows((flowsRes.data || []).filter(f => f.verdict === 'malicious'));
+            setMaliciousFlows((flowsRes.data || []).filter(f => f.verdict === 'malicious' && String(f.dst_port) !== '8000'));
             setLoadingC2(false);
             setLoadingIntel(false);
           }
@@ -148,9 +148,9 @@ export default function ThreatIntelTab() {
           <p style={{ fontSize: '0.8rem', color: '#8d97aa', marginBottom: 20 }}>Live interception mapping of active TLS flows resolving to high-risk Bulletproof ASN hubs.</p>
 
           <div className="grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'center' }}>
-            <div style={{ overflowX: 'auto' }}>
+            <div style={{ maxHeight: 260, overflowY: 'auto', overflowX: 'auto', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8 }}>
               <table className="data-table" style={{ margin: 0 }}>
-                <thead style={{ background: 'rgba(5, 8, 15, 0.95)' }}>
+                <thead style={{ background: 'rgba(5, 8, 15, 0.95)', position: 'sticky', top: 0, zIndex: 1, boxShadow: '0 2px 5px rgba(0,0,0,0.5)' }}>
                   <tr>
                     <th style={{ padding: '8px 10px', color: '#8d97aa' }}>Destination</th>
                     <th style={{ padding: '8px 10px', color: '#8d97aa' }}>Autonomous System</th>

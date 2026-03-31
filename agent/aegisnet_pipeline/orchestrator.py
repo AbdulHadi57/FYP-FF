@@ -37,12 +37,32 @@ class TrafficPipeline:
             )
             self.control_client = NodeControlClient(control_cfg)
 
+        server_host = ""
+        server_port = "8000"
+        try:
+            p = urlparse(self.config.server_url)
+            if p.hostname:
+                server_host = p.hostname
+            if p.port:
+                server_port = str(p.port)
+            elif p.scheme == "https":
+                server_port = "443"
+            elif p.scheme == "http":
+                server_port = "80"
+        except Exception:
+            pass
+            
+        bpf_filter = "tcp or udp"
+        if server_host:
+            bpf_filter += f" and not (host {server_host} and port {server_port})"
+
         output_dir = str(self.config.capture_output_dir) if self.config.capture_output_dir else None
         self.capture = AegisNetCapture(
             interface=self.config.interface,
             output_dir=output_dir,
             feature_callback=self._handle_feature,
             write_to_csv=self.config.write_capture_csv,
+            bpf_filter=bpf_filter,
         )
 
     def _discover_local_ipv4s(self, server_url: str) -> List[str]:

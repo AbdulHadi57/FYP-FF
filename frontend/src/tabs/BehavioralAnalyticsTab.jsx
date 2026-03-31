@@ -20,6 +20,7 @@ export default function BehavioralAnalyticsTab() {
   const [timeline, setTimeline] = useState([]);
   const [modules, setModules] = useState(null);
   const [stats, setStats] = useState(null);
+  const [maliciousFlows, setMaliciousFlows] = useState([]);
   const [suspectLimit, setSuspectLimit] = useState(25);
   const [loading, setLoading] = useState(true);
 
@@ -27,15 +28,17 @@ export default function BehavioralAnalyticsTab() {
     let active = true;
     const fetchAnalytics = async () => {
       try {
-        const [statsRes, timeRes, modRes] = await Promise.all([
+        const [statsRes, timeRes, modRes, flowsRes] = await Promise.all([
            axios.get('http://localhost:8000/api/stats'),
            axios.get('http://localhost:8000/api/timeline'),
-           axios.get('http://localhost:8000/api/modules')
+           axios.get('http://localhost:8000/api/modules'),
+           axios.get('http://localhost:8000/api/flows?limit=300')
         ]);
         if (!active) return;
         
         setStats(statsRes.data);
         setModules(modRes.data);
+        setMaliciousFlows((flowsRes.data || []).filter(f => f.verdict === 'malicious' && String(f.dst_port) !== '8000'));
         
         // Generate an offset Timeline for "Baseline vs JA4 Anomaly" simulation based on real timeline
         const simulatedBaseline = (timeRes.data || []).map(t => ({
@@ -72,6 +75,68 @@ export default function BehavioralAnalyticsTab() {
   
   const sortedSuspects = [...scatterData].sort((a,b) => b.threat - a.threat).slice(0, suspectLimit);
 
+  // Dynamic Web Rendering
+  const renderDynamicWeb = () => {
+    if (!maliciousFlows || maliciousFlows.length === 0) {
+      return (
+        <div style={{ width: '100%', height: 320, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.2)', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: 12 }}>
+          <Network size={32} style={{ color: '#666', marginBottom: 10, opacity: 0.5 }} />
+          <div style={{ color: '#8d97aa' }}>No Active Infection Vectors Detected</div>
+          <div style={{ fontSize: '0.8rem', color: '#666' }}>AegisNet is actively monitoring.</div>
+        </div>
+      );
+    }
+    
+    const srcs = Array.from(new Set(maliciousFlows.map(f => f.src_ip))).slice(0, 3);
+    const dsts = Array.from(new Set(maliciousFlows.map(f => f.dst_ip))).slice(0, 3);
+    const srcY = [160, 80, 240];
+    const dstY = [160, 80, 240];
+    
+    return (
+        <div style={{ width: '100%', height: 320, position: 'relative', background: 'radial-gradient(circle at center, rgba(0,224,255,0.05), transparent 70%)', border: '1px solid rgba(0,224,255,0.1)', borderRadius: 12 }}>
+           <svg width="100%" height="100%" style={{ position: 'absolute', top: 0, left: 0 }}>
+             <defs>
+               <linearGradient id="beam" x1="0" y1="0" x2="1" y2="1">
+                 <stop offset="0%" stopColor="#00e0ff" stopOpacity="0.8" />
+                 <stop offset="100%" stopColor="#ff3366" stopOpacity="0.8" />
+               </linearGradient>
+               <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                 <feGaussianBlur stdDeviation="3" result="blur" />
+                 <feComposite in="SourceGraphic" in2="blur" operator="over" />
+               </filter>
+             </defs>
+             {srcs.map((src, sIdx) => {
+               const sY = srcY[sIdx];
+               const activeDsts = Array.from(new Set(maliciousFlows.filter(f => f.src_ip === src).map(f => f.dst_ip)));
+               return dsts.map((dst, dIdx) => {
+                 if (activeDsts.includes(dst)) {
+                   const dY = dstY[dIdx];
+                   return <path key={`${sIdx}-${dIdx}`} d={`M 240 ${sY} C 400 ${sY}, 500 ${dY}, 700 ${dY}`} fill="none" stroke="url(#beam)" strokeWidth="2" opacity="0.6" className="pulse-stroke" />;
+                 }
+                 return null;
+               });
+             })}
+           </svg>
+           
+           {srcs.map((src, i) => (
+             <div key={`src-${i}`} style={{ position: 'absolute', left: 200, top: srcY[i] - 20, width: 40, height: 40, background: 'rgba(0,224,255,0.15)', border: '2px solid #00e0ff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 15px rgba(0,224,255,0.4)', zIndex: 10 }}>
+               <Server size={18} style={{ color: '#00e0ff' }} />
+               <div style={{ position: 'absolute', bottom: -25, fontSize: '0.75rem', color: '#00e0ff', whiteSpace: 'nowrap', fontWeight: 600 }}>{src}</div>
+               <div style={{ position: 'absolute', top: -20, fontSize: '0.7rem', color: '#8d97aa', whiteSpace: 'nowrap' }}>Compromised Node</div>
+             </div>
+           ))}
+
+           {dsts.map((dst, i) => (
+             <div key={`dst-${i}`} style={{ position: 'absolute', left: 700, top: dstY[i] - 20, width: 40, height: 40, background: 'rgba(255,51,102,0.15)', border: '2px solid #ff3366', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 15px rgba(255,51,102,0.4)', zIndex: 10 }}>
+               <Globe size={18} style={{ color: '#ff3366' }} />
+               <div style={{ position: 'absolute', bottom: -25, fontSize: '0.75rem', color: '#ff3366', whiteSpace: 'nowrap', fontWeight: 600 }}>{dst}</div>
+               <div style={{ position: 'absolute', top: -20, fontSize: '0.7rem', color: '#8d97aa', whiteSpace: 'nowrap' }}>Suspected C2</div>
+             </div>
+           ))}
+        </div>
+    );
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Tab Header Section */}
@@ -86,16 +151,16 @@ export default function BehavioralAnalyticsTab() {
              <div style={{ fontSize: '0.8rem', color: '#8d97aa' }}>Total Ingested Flows</div>
           </div>
           <div className="kpi-widget card glass-panel" style={{ border: '1px solid rgba(0,224,255,0.2)', padding: '16px 20px', borderRadius: 8 }}>
-             <div style={{ color: '#00e0ff', fontSize: '1.8rem', fontWeight: 700 }}>{(Math.floor(stats.total_flows * 0.12)).toLocaleString()}</div>
+             <div style={{ color: '#00e0ff', fontSize: '1.8rem', fontWeight: 700 }}>{stats.total_flows.toLocaleString()}</div>
              <div style={{ fontSize: '0.8rem', color: '#8d97aa' }}>Passed to AI Pipeline</div>
           </div>
           <div className="kpi-widget card glass-panel" style={{ border: '1px solid rgba(0,224,255,0.2)', padding: '16px 20px', borderRadius: 8 }}>
-             <div style={{ color: '#00e0ff', fontSize: '1.8rem', fontWeight: 700 }}>{modules.ja4_diversity}</div>
-             <div style={{ fontSize: '0.8rem', color: '#8d97aa' }}>Distinct JA4 Hashes</div>
+             <div style={{ color: '#00e0ff', fontSize: '1.8rem', fontWeight: 700 }}>{(stats.total_flows - stats.malicious_flows).toLocaleString()}</div>
+             <div style={{ fontSize: '0.8rem', color: '#8d97aa' }}>Benign Flows</div>
           </div>
-          <div className="kpi-widget card glass-panel" style={{ border: '1px solid rgba(84,166,255,0.2)', padding: '16px 20px', borderRadius: 8 }}>
-             <div style={{ color: '#54a6ff', fontSize: '1.8rem', fontWeight: 700 }}>{modules.ja4s_diversity}</div>
-             <div style={{ fontSize: '0.8rem', color: '#8d97aa' }}>Distinct JA4S Hashes</div>
+          <div className="kpi-widget card glass-panel" style={{ border: '1px solid rgba(255,75,92,0.2)', padding: '16px 20px', borderRadius: 8 }}>
+             <div style={{ color: '#ff4b5c', fontSize: '1.8rem', fontWeight: 700 }}>{stats.malicious_flows.toLocaleString()}</div>
+             <div style={{ fontSize: '0.8rem', color: '#8d97aa' }}>Malicious Convictions</div>
           </div>
           <div className="kpi-widget card glass-panel" style={{ border: '1px solid rgba(255,51,102,0.2)', padding: '16px 20px', borderRadius: 8 }}>
              <div style={{ color: '#ff3366', fontSize: '1.8rem', fontWeight: 700 }}>{scatterData.filter(d => d.threat > 70).length}</div>
@@ -109,74 +174,10 @@ export default function BehavioralAnalyticsTab() {
           <Network size={18} /> Entity Relationship Web (Active Infection Vectors)
         </h3>
         <p style={{ fontSize: '0.8rem', color: '#8d97aa', marginBottom: 20 }}>
-          Visualizing correlated beacon connections between multiple internal agents and external adversarial infrastructure. 
-          The graph maps multiple compromised hosts communicating with the same centralized C2 domains (e.g., Domain Fronting).
+          Visualizing correlated beacon connections between internal agents and external adversarial infrastructure based on active malicious evaluations.
         </p>
         
-        <div style={{ width: '100%', height: 320, position: 'relative', background: 'radial-gradient(circle at center, rgba(0,224,255,0.05), transparent 70%)', border: '1px solid rgba(0,224,255,0.1)', borderRadius: 12 }}>
-           <svg width="100%" height="100%" style={{ position: 'absolute', top: 0, left: 0 }}>
-             <defs>
-               <linearGradient id="beam" x1="0" y1="0" x2="1" y2="1">
-                 <stop offset="0%" stopColor="#00e0ff" stopOpacity="0.8" />
-                 <stop offset="100%" stopColor="#ff3366" stopOpacity="0.8" />
-               </linearGradient>
-               <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-                 <feGaussianBlur stdDeviation="3" result="blur" />
-                 <feComposite in="SourceGraphic" in2="blur" operator="over" />
-               </filter>
-             </defs>
-             {/* Connection Lines */}
-             {/* Alpha to C2-1 */}
-             <path d="M 240 100 C 400 100, 500 60, 700 60" fill="none" stroke="url(#beam)" strokeWidth="2" opacity="0.6" className="pulse-stroke" />
-             {/* Alpha to C2-2 */}
-             <path d="M 240 100 C 400 100, 500 160, 700 160" fill="none" stroke="url(#beam)" strokeWidth="2" opacity="0.6" className="pulse-stroke" />
-             {/* Beta to C2-2 (Shared Connection) */}
-             <path d="M 240 220 C 400 220, 500 160, 700 160" fill="none" stroke="url(#beam)" strokeWidth="2" opacity="0.6" className="pulse-stroke" />
-             {/* Beta to C2-3 */}
-             <path d="M 240 220 C 400 220, 500 260, 700 260" fill="none" stroke="url(#beam)" strokeWidth="2" opacity="0.6" className="pulse-stroke" />
-           </svg>
-           
-           {/* Internal Node 1 (Agent Alpha) */}
-           <div style={{ position: 'absolute', left: 200, top: 80, width: 40, height: 40, background: 'rgba(0,224,255,0.15)', border: '2px solid #00e0ff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 15px rgba(0,224,255,0.4)', zIndex: 10 }}>
-             <Server size={18} style={{ color: '#00e0ff' }} />
-             <div style={{ position: 'absolute', bottom: -25, fontSize: '0.75rem', color: '#00e0ff', whiteSpace: 'nowrap', fontWeight: 600 }}>192.168.1.105</div>
-             <div style={{ position: 'absolute', bottom: -40, fontSize: '0.7rem', color: '#c3cedf', whiteSpace: 'nowrap' }}>WIN-DESKTOP.ad.local</div>
-             <div style={{ position: 'absolute', top: -20, fontSize: '0.7rem', color: '#8d97aa', whiteSpace: 'nowrap' }}>Agent Alpha</div>
-           </div>
-
-           {/* Internal Node 2 (Agent Beta) */}
-           <div style={{ position: 'absolute', left: 200, top: 200, width: 40, height: 40, background: 'rgba(0,224,255,0.15)', border: '2px solid #00e0ff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 15px rgba(0,224,255,0.4)', zIndex: 10 }}>
-             <Server size={18} style={{ color: '#00e0ff' }} />
-             <div style={{ position: 'absolute', bottom: -25, fontSize: '0.75rem', color: '#00e0ff', whiteSpace: 'nowrap', fontWeight: 600 }}>10.15.44.20</div>
-             <div style={{ position: 'absolute', bottom: -40, fontSize: '0.7rem', color: '#c3cedf', whiteSpace: 'nowrap' }}>HR-LAPTOP.ad.local</div>
-             <div style={{ position: 'absolute', top: -20, fontSize: '0.7rem', color: '#8d97aa', whiteSpace: 'nowrap' }}>Agent Beta</div>
-           </div>
-
-           {/* External C2 Node 1 */}
-           <div style={{ position: 'absolute', left: 700, top: 40, width: 40, height: 40, background: 'rgba(255,51,102,0.15)', border: '2px solid #ff3366', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 15px rgba(255,51,102,0.4)', zIndex: 10 }}>
-             <Globe size={18} style={{ color: '#ff3366' }} />
-             <div style={{ position: 'absolute', bottom: -25, fontSize: '0.75rem', color: '#ff3366', whiteSpace: 'nowrap', fontWeight: 600 }}>146.185.239.12</div>
-             <div style={{ position: 'absolute', bottom: -40, fontSize: '0.7rem', color: '#c3cedf', whiteSpace: 'nowrap' }}>malware-c2.ru</div>
-             <div style={{ position: 'absolute', top: -20, fontSize: '0.7rem', color: '#8d97aa', whiteSpace: 'nowrap' }}>AS20473 (RU)</div>
-           </div>
-           
-           {/* External C2 Node 2 (Shared Node) */}
-           <div style={{ position: 'absolute', left: 700, top: 140, width: 40, height: 40, background: 'rgba(255,51,102,0.15)', border: '2px solid #ff3366', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 25px rgba(255,51,102,0.7)', zIndex: 10 }}>
-             <Globe size={18} style={{ color: '#ff3366' }} />
-             <div style={{ position: 'absolute', bottom: -25, fontSize: '0.75rem', color: '#ff3366', whiteSpace: 'nowrap', fontWeight: 600 }}>192.99.14.8</div>
-             <div style={{ position: 'absolute', bottom: -40, fontSize: '0.7rem', color: '#c3cedf', whiteSpace: 'nowrap' }}>proxy-hub.net</div>
-             <div style={{ position: 'absolute', top: -20, fontSize: '0.7rem', color: '#f4c542', whiteSpace: 'nowrap', fontWeight: 600 }}>Shared Attack Vector</div>
-           </div>
-
-           {/* External C2 Node 3 */}
-           <div style={{ position: 'absolute', left: 700, top: 240, width: 40, height: 40, background: 'rgba(255,51,102,0.15)', border: '2px solid #ff3366', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 15px rgba(255,51,102,0.4)', zIndex: 10 }}>
-             <Globe size={18} style={{ color: '#ff3366' }} />
-             <div style={{ position: 'absolute', bottom: -25, fontSize: '0.75rem', color: '#ff3366', whiteSpace: 'nowrap', fontWeight: 600 }}>89.44.9.22</div>
-             <div style={{ position: 'absolute', bottom: -40, fontSize: '0.7rem', color: '#c3cedf', whiteSpace: 'nowrap' }}>cdn-edge.xyz</div>
-             <div style={{ position: 'absolute', top: -20, fontSize: '0.7rem', color: '#8d97aa', whiteSpace: 'nowrap' }}>Proxy Node (RO)</div>
-           </div>
-           
-        </div>
+        {renderDynamicWeb()}
       </div>
 
       <div className="grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>

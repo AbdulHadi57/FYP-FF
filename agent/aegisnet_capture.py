@@ -605,11 +605,12 @@ class FlowManager:
             self.active_flows.clear()
 
 class AegisNetCapture:
-    def __init__(self, interface='eth0', output_dir='./captures', feature_callback=None, write_to_csv=True):
+    def __init__(self, interface='eth0', output_dir='./captures', feature_callback=None, write_to_csv=True, bpf_filter="tcp or udp"):
         self.interface = interface
         self.output_dir = output_dir
         self.feature_callback = feature_callback
         self.write_to_csv = bool(write_to_csv and output_dir)
+        self.bpf_filter = bpf_filter
         self.flow_manager = FlowManager()
         self.running = False
         self.doh_indicators = defaultdict(dict)
@@ -1118,7 +1119,7 @@ class AegisNetCapture:
                 sniff_kwargs = {
                     "iface": iface_to_use,
                     "prn": self.flow_manager.process_packet,
-                    "filter": "tcp or udp",
+                    "filter": getattr(self, "bpf_filter", "tcp or udp"),
                     "store": False,
                 }
                 if packet_count is not None and packet_count > 0:
