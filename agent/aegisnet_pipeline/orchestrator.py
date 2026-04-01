@@ -52,7 +52,7 @@ class TrafficPipeline:
         except Exception:
             pass
             
-        bpf_filter = "tcp or udp"
+        bpf_filter = "(tcp or udp)"
         if server_host:
             bpf_filter += f" and not (host {server_host} and port {server_port})"
 

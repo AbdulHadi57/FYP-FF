@@ -1025,49 +1025,52 @@ class AegisNetCapture:
                     if flow is None:
                         break
                     
-                    # Calculate features
-                    features = self.calculate_features(flow)
-                    if not features:
-                        continue
-                    
-                    # Send feature payload to downstream callback if provided
-                    if self.feature_callback:
-                        try:
-                            self.feature_callback(features)
-                        except Exception as callback_error:
-                            self.logger.error(f"Feature callback error: {callback_error}")
-                    
-                    # Skip CSV persistence when disabled
-                    if not self.write_to_csv:
-                        continue
-                    
-                    # Set headers from first valid flow
-                    if headers is None:
-                        headers = list(features.keys())
-                    
-                    # Create new file if needed (first time or reached limit)
-                    if f is None or entry_count >= max_entries_per_file:
-                        # Close previous file if exists
-                        if f is not None:
-                            f.close()
-                            self.logger.info(f"Completed {output_file} with {entry_count} entries")
+                    try:
+                        # Calculate features
+                        features = self.calculate_features(flow)
+                        if not features:
+                            continue
                         
-                        # Create new file
-                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                        output_file = os.path.join(self.output_dir, f'aegisnet_live_{timestamp}_part{file_counter}.csv')
-                        f = open(output_file, 'w', newline='')
-                        writer = csv.DictWriter(f, fieldnames=headers)
-                        writer.writeheader()
+                        # Send feature payload to downstream callback if provided
+                        if self.feature_callback:
+                            try:
+                                self.feature_callback(features)
+                            except Exception as callback_error:
+                                self.logger.error(f"Feature callback error: {callback_error}")
+                        
+                        # Skip CSV persistence when disabled
+                        if not self.write_to_csv:
+                            continue
+                        
+                        # Set headers from first valid flow
+                        if headers is None:
+                            headers = list(features.keys())
+                        
+                        # Create new file if needed (first time or reached limit)
+                        if f is None or entry_count >= max_entries_per_file:
+                            # Close previous file if exists
+                            if f is not None:
+                                f.close()
+                                self.logger.info(f"Completed {output_file} with {entry_count} entries")
+                            
+                            # Create new file
+                            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                            output_file = os.path.join(self.output_dir, f'aegisnet_live_{timestamp}_part{file_counter}.csv')
+                            f = open(output_file, 'w', newline='')
+                            writer = csv.DictWriter(f, fieldnames=headers)
+                            writer.writeheader()
+                            f.flush()
+                            
+                            self.logger.info(f"Started writing to {output_file}")
+                            entry_count = 0
+                            file_counter += 1
+                        
+                        # Write the row
+                        writer.writerow(features)
                         f.flush()
-                        
-                        self.logger.info(f"Started writing to {output_file}")
-                        entry_count = 0
-                        file_counter += 1
-                    
-                    # Write the row
-                    writer.writerow(features)
-                    f.flush()
-                    entry_count += 1
+                        entry_count += 1
+                    except Exception as flow_err:
+                        self.logger.error(f"Error calculating features for flow: {flow_err}")
                     
                 except queue.Empty:
                     continue

@@ -22,6 +22,7 @@ const eventConfig = {
   dc_rejected: { icon: AlertTriangle, label: 'DC Rejected', color: '#ff9a3d' },
   dc_deleted: { icon: Trash2, label: 'DC Removed', color: '#ff3366' },
   agent_removed: { icon: Trash2, label: 'Agent Removed', color: '#ff3366' },
+  agent_deleted: { icon: Trash2, label: 'Agent Removed', color: '#ff3366' },
 };
 
 export default function AuditTrailTab({ api = '', globalSearch = '', autoRefreshSeconds = 10 }) {

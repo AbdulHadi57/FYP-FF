@@ -46,7 +46,8 @@ class PipelineStorage:
 
         try:
             # Send to Cloud
-            resp = requests.post(self.api_url, json=payload, timeout=10)
+            json_str = self._json_dump(payload)
+            resp = requests.post(self.api_url, data=json_str, headers={"Content-Type": "application/json"}, timeout=10)
             if resp.status_code == 200:
                 data = resp.json()
                 # Return flow ID so orchestrator can log it
