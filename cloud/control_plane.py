@@ -697,6 +697,18 @@ async def delete_dc(
             agent_ids_removed.append(aid)
             conn.execute("DELETE FROM agents WHERE id = ?", (aid,))
             conn.execute("DELETE FROM agent_dc_bindings WHERE agent_id = ?", (aid,))
+            _audit(
+                conn,
+                aid,
+                "agent_deleted",
+                "system",
+                {
+                    "agent_id": aid,
+                    "dc_id": dc_id,
+                    "reason": "Cascaded delete due to parent DC removal",
+                },
+                target_info=aid,
+            )
 
         # Remove the DC bindings and the DC itself
         conn.execute("DELETE FROM agent_dc_bindings WHERE dc_id = ?", (dc_id,))

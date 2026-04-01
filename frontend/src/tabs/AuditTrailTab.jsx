@@ -175,10 +175,10 @@ export default function AuditTrailTab({ api = '', globalSearch = '', autoRefresh
                       <td style={{ padding: '8px 16px' }}>
                         <span style={{
                            fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px', borderRadius: 4,
-                           background: entry.job_status === 'succeeded' || entry.job_status === 'completed' ? 'rgba(0,255,163,0.1)' : entry.job_status === 'failed' ? 'rgba(255,51,102,0.1)' : 'rgba(255,154,61,0.1)',
-                           color: entry.job_status === 'succeeded' || entry.job_status === 'completed' ? '#00ffa3' : entry.job_status === 'failed' ? '#ff3366' : '#ff9a3d'
+                           background: entry.job_status === 'failed' ? 'rgba(255,51,102,0.1)' : 'rgba(0,255,163,0.1)',
+                           color: entry.job_status === 'failed' ? '#ff3366' : '#00ffa3'
                         }}>
-                          {entry.job_status ? entry.job_status.toUpperCase() : 'UNKNOWN'}
+                          {entry.job_status ? entry.job_status.toUpperCase() : 'SUCCESS'}
                         </span>
                       </td>
 
