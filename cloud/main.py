@@ -406,10 +406,24 @@ def get_flow_details(flow_id: int):
 def get_module_stats(limit: int = 1000):
     conn = get_db_connection()
     try:
-        rows = conn.execute(
-            "SELECT id, src_ip, dst_ip, captured_at, verdict, ja4_pred, ttp_predictions, apt_matches, protocol, features_json FROM flows ORDER BY captured_at DESC LIMIT ?",
-            (limit,)
-        ).fetchall()
+        rows = conn.execute("""
+            SELECT id, src_ip, dst_ip, captured_at, verdict, ja4_pred, ttp_predictions, apt_matches, protocol, 
+            json_extract(features_json, '$.ja4') as ja4,
+            json_extract(features_json, '$.ja4s') as ja4s,
+            json_extract(features_json, '$.ja4h') as ja4h,
+            json_extract(features_json, '$.ja4x') as ja4x,
+            json_extract(features_json, '$.ja4ssh') as ja4ssh,
+            json_extract(features_json, '$.ja4t') as ja4t,
+            json_extract(features_json, '$.ja4ts') as ja4ts,
+            json_extract(features_json, '$.ja4l_c') as ja4l_c,
+            json_extract(features_json, '$.ja4l_s') as ja4l_s,
+            json_extract(features_json, '$.ja4d') as ja4d,
+            json_extract(features_json, '$.matched_sni_domain') as matched_sni_domain,
+            json_extract(features_json, '$.ja4_sni') as ja4_sni
+            FROM flows 
+            ORDER BY captured_at DESC 
+            LIMIT ?
+        """, (limit,)).fetchall()
 
         ja4_set = set()
         ja4s_set = set()
@@ -431,17 +445,15 @@ def get_module_stats(limit: int = 1000):
 
         for row in rows:
             try:
-                feats = json.loads(row["features_json"])
-
                 def add_metric(key, counter):
-                    val = feats.get(key, "None")
+                    val = row[key] if row[key] is not None else "None"
                     if val != "None":
                         counter[val] += 1
 
                 add_metric("ja4", ja4_io)
-                if feats.get("ja4", "None") != "None": ja4_set.add(feats["ja4"])
+                if row["ja4"] is not None: ja4_set.add(row["ja4"])
                 add_metric("ja4s", ja4s_io)
-                if feats.get("ja4s", "None") != "None": ja4s_set.add(feats["ja4s"])
+                if row["ja4s"] is not None: ja4s_set.add(row["ja4s"])
                 add_metric("ja4h", ja4h_io)
                 add_metric("ja4x", ja4x_io)
                 add_metric("ja4ssh", ja4ssh_io)
@@ -449,8 +461,8 @@ def get_module_stats(limit: int = 1000):
                 add_metric("ja4ts", ja4ts_io)
                 add_metric("ja4d", ja4d_io)
 
-                ja4l_c = feats.get("ja4l_c", "None")
-                ja4l_s = feats.get("ja4l_s", "None")
+                ja4l_c = row["ja4l_c"] if row["ja4l_c"] is not None else "None"
+                ja4l_s = row["ja4l_s"] if row["ja4l_s"] is not None else "None"
                 if ja4l_c != "None": ja4l_io[f"C:{ja4l_c}"] += 1
                 if ja4l_s != "None": ja4l_io[f"S:{ja4l_s}"] += 1
 
@@ -504,32 +516,58 @@ def get_module_stats(limit: int = 1000):
 
         for row in rows:
             try:
-                feats = json.loads(row["features_json"])
-                if feats.get("ja4", "None") != "None" or feats.get("ja4s", "None") != "None":
+                if row["ja4"] is not None or row["ja4s"] is not None:
                     if row["ja4_pred"] == "malicious":
                         ja4_mal_count += 1
                     else:
                         ja4_ben_count += 1
 
                 for feature_type in ['ja4', 'ja4s', 'ja4h', 'ja4x', 'ja4ssh', 'ja4t', 'ja4ts', 'ja4l', 'ja4d']:
-                    val = feats.get(feature_type, None)
+                    val = row[feature_type] if feature_type not in ['ja4l'] else None
+                    if feature_type == 'ja4l':
+                        # ja4l handled separately
+                        pass
+                    
+                    # We map ja4l_c / ja4l_s to 'ja4l' for ui array appending
                     has_val = False
                     display_val = "N/A"
-                    if isinstance(val, list) and len(val) > 0:
-                        has_val = True
-                        display_val = str(val[0])
-                    elif val and str(val) != "None":
-                        has_val = True
-                        display_val = str(val)
-                    if has_val and len(recent_features[feature_type]) < 20:
-                        recent_features[feature_type].append({
-                            "id": row["id"],
-                            "captured_at": row["captured_at"],
-                            "src_ip": row["src_ip"],
-                            "dst_ip": row["dst_ip"],
-                            "sni": feats.get("matched_sni_domain", None) or feats.get("ja4_sni", "N/A"),
-                            "value": display_val
-                        })
+                    if feature_type == 'ja4l':
+                         if row['ja4l_c'] is not None and str(row['ja4l_c']) != 'None':
+                             if len(recent_features['ja4l']) < 20:
+                                 sni_val = row["matched_sni_domain"] or row["ja4_sni"] or "N/A"
+                                 recent_features['ja4l'].append({
+                                     "id": row["id"],
+                                     "captured_at": row["captured_at"],
+                                     "src_ip": row["src_ip"],
+                                     "dst_ip": row["dst_ip"],
+                                     "sni": sni_val,
+                                     "value": f"C:{row['ja4l_c']}"
+                                 })
+                         if row['ja4l_s'] is not None and str(row['ja4l_s']) != 'None':
+                             if len(recent_features['ja4l']) < 20:
+                                 sni_val = row["matched_sni_domain"] or row["ja4_sni"] or "N/A"
+                                 recent_features['ja4l'].append({
+                                     "id": row["id"],
+                                     "captured_at": row["captured_at"],
+                                     "src_ip": row["src_ip"],
+                                     "dst_ip": row["dst_ip"],
+                                     "sni": sni_val,
+                                     "value": f"S:{row['ja4l_s']}"
+                                 })
+                    else:
+                         if val is not None and str(val) != "None":
+                             has_val = True
+                             display_val = str(val)
+                         if has_val and len(recent_features[feature_type]) < 20:
+                             sni_val = row["matched_sni_domain"] or row["ja4_sni"] or "N/A"
+                             recent_features[feature_type].append({
+                                 "id": row["id"],
+                                 "captured_at": row["captured_at"],
+                                 "src_ip": row["src_ip"],
+                                 "dst_ip": row["dst_ip"],
+                                 "sni": sni_val,
+                                 "value": display_val
+                             })
             except:
                 pass
 
@@ -965,7 +1003,7 @@ def get_events(limit: int = 50, status: str = "all", module: Optional[str] = Non
     try:
         if status != "system":
             rows = conn.execute("""
-                SELECT f.id, f.captured_at, f.src_ip, f.dst_ip, f.features_json, f.confidence, 
+                SELECT f.id, f.captured_at, f.src_ip, f.dst_ip, f.confidence, 
                        f.protocol, f.is_resolved, f.resolution_note, f.ttp_predictions,
                        md.module_name, md.rationale
                 FROM flows f
@@ -983,9 +1021,6 @@ def get_events(limit: int = 50, status: str = "all", module: Optional[str] = Non
 
                     row_conf = row["confidence"] if row["confidence"] is not None else 0.0
                     if row_conf < min_confidence: continue
-
-                    feats = json.loads(row["features_json"])
-                    ja4 = feats.get("ja4", "N/A")
 
                     db_module = row["module_name"]
 
