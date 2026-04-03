@@ -10,9 +10,6 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-import torch
-import torch.nn as nn
-
 from ttp_module import TTPModule, TTPResult
 from apt_attribution import APTAttributionModule, ActorAttribution
 
@@ -101,270 +98,6 @@ class DetectionModule:
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Stage 0: Baseline Anomaly Detection (Deep Autoencoder)
-# ──────────────────────────────────────────────────────────────────────
-
-# --- Column lists (must match train_baseline.py exactly) ---
-_IDENTIFIER_COLS = [
-    "src_ip", "dst_ip", "captured_at", "dataset_name", "source_pcap",
-    "matched_sni_domain", "ja4d_fqdn", "ja4d_ip",
-]
-_CONSTANT_COLS = [
-    "fwd_urg_flags", "bwd_urg_flags", "urg_flag_count",
-    "idle_mean", "idle_std", "idle_max", "idle_min",
-    "uses_port_853", "dns_query_count", "dns_answer_count",
-]
-_DUPLICATE_DROP = [
-    "subflow_fwd_packets", "subflow_bwd_packets",
-    "avg_fwd_segment_size", "avg_bwd_segment_size",
-    "active_mean", "active_std", "active_max", "active_min",
-    "fwd_psh_ack_count", "bwd_psh_ack_count",
-    "fwd_bulk_bytes", "bwd_bulk_bytes",
-    "avg_pkt_size", "pkt_len_variance",
-    "fwd_avg_bulk_rate", "bwd_avg_bulk_rate",
-    "flow_bytes_sent", "flow_bytes_received",
-]
-_SPARSE_JA4_DROP = [
-    "ja4x", "ja4d", "ja4d_type", "ja4d_size", "ja4d_options",
-    "ja4d_request_list", "ja4ssh", "ja4h",
-    "ja4h_method", "ja4h_version", "ja4h_cookie", "ja4h_referer",
-    "ja4h_header_count", "ja4h_lang", "ja4h_header_hash",
-    "ja4h_cookie_name_hash", "ja4h_cookie_value_hash",
-]
-_HIGH_CORR_DROP = [
-    "ack_flag_count", "fwd_iat_total", "fwd_header_len",
-    "response_time_mode", "fwd_avg_bytes_bulk", "bwd_avg_bytes_bulk",
-    "fwd_avg_packets_bulk", "bwd_avg_packets_bulk",
-    "subflow_fwd_bytes", "subflow_bwd_bytes",
-]
-_ALL_DROP = set(
-    _IDENTIFIER_COLS + _CONSTANT_COLS + _DUPLICATE_DROP +
-    _SPARSE_JA4_DROP + _HIGH_CORR_DROP
-)
-
-_JA4_FREQ_ENCODE = [
-    "ja4", "ja4s", "ja4l_c", "ja4l_s", "ja4t", "ja4ts",
-    "ja4_cipher_hash", "ja4_extension_hash",
-    "ja4s_cipher", "ja4s_ext_hash",
-    "ja4t_tcp_options", "ja4ts_tcp_options",
-]
-_JA4_CAT_ENCODE = [
-    "ja4_version", "ja4_sni", "ja4_alpn", "ja4s_version", "ja4s_alpn",
-]
-
-
-class _DeepAutoencoder(nn.Module):
-    """Mirror of the architecture used during training."""
-
-    def __init__(self, input_dim: int, bottleneck: int = 16):
-        super().__init__()
-        h1 = max(input_dim // 2, 64)
-        h2 = max(input_dim // 4, 32)
-        self.encoder = nn.Sequential(
-            nn.Linear(input_dim, h1), nn.BatchNorm1d(h1), nn.ReLU(), nn.Dropout(0.2),
-            nn.Linear(h1, h2), nn.BatchNorm1d(h2), nn.ReLU(), nn.Dropout(0.1),
-            nn.Linear(h2, bottleneck), nn.ReLU(),
-        )
-        self.decoder = nn.Sequential(
-            nn.Linear(bottleneck, h2), nn.BatchNorm1d(h2), nn.ReLU(), nn.Dropout(0.1),
-            nn.Linear(h2, h1), nn.BatchNorm1d(h1), nn.ReLU(), nn.Dropout(0.2),
-            nn.Linear(h1, input_dim),
-        )
-
-    def forward(self, x):
-        return self.decoder(self.encoder(x))
-
-
-def _categorize_port(port) -> str:
-    try:
-        p = int(port)
-    except (TypeError, ValueError):
-        return "dynamic"
-    if p <= 1023:
-        return "well_known"
-    elif p <= 49151:
-        return "registered"
-    return "dynamic"
-
-
-class BaselineModule(DetectionModule):
-    """
-    Stage 0 — Unsupervised anomaly detection using a Deep Autoencoder
-    trained exclusively on benign network traffic.
-
-    Flags flows whose reconstruction error exceeds the 95th-percentile
-    threshold learned from the validation set.
-    """
-
-    def __init__(self):
-        self.name = "baseline-anomaly"
-        self.version = "1.0.0"
-        self.model = None
-        self.scaler = None
-        self.freq_maps = {}
-        self.cat_maps = {}
-        self.feature_cols = []
-        self.threshold = 0.0
-        self.is_loaded = False
-        self._load()
-
-    def _load(self):
-        base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ml_models")
-        paths = {
-            "model": os.path.join(base, "baseline_autoencoder.pt"),
-            "scaler": os.path.join(base, "baseline_scaler.pkl"),
-            "freq": os.path.join(base, "baseline_freq_maps.pkl"),
-            "cat": os.path.join(base, "baseline_cat_maps.pkl"),
-            "features": os.path.join(base, "baseline_features.json"),
-        }
-        for tag, p in paths.items():
-            if not os.path.exists(p):
-                logger.warning("BaselineModule: missing %s at %s", tag, p)
-                return
-
-        try:
-            with open(paths["features"]) as f:
-                self.feature_cols = json.load(f)
-            self.scaler = joblib.load(paths["scaler"])
-            self.freq_maps = joblib.load(paths["freq"])
-            self.cat_maps = joblib.load(paths["cat"])
-
-            input_dim = len(self.feature_cols)
-            self.model = _DeepAutoencoder(input_dim, bottleneck=16)
-            self.model.load_state_dict(
-                torch.load(paths["model"], map_location="cpu", weights_only=True)
-            )
-            self.model.eval()
-
-            # Threshold = 95th percentile of validation reconstruction errors
-            # Computed during training and stored in the evaluation results
-            eval_path = os.path.join(base, "evaluation_results_corrected.json")
-            if os.path.exists(eval_path):
-                with open(eval_path) as f:
-                    eval_results = json.load(f)
-                self.threshold = eval_results.get("Deep Autoencoder", {}).get("threshold", 0.434)
-            else:
-                self.threshold = 0.434  # fallback from training
-
-            self.is_loaded = True
-            logger.info(
-                "BaselineModule: loaded autoencoder (%d features, threshold=%.4f)",
-                input_dim, self.threshold,
-            )
-        except Exception as e:
-            logger.error("BaselineModule: failed to load — %s", e)
-
-    def _preprocess_single(self, payload: Dict) -> Optional[np.ndarray]:
-        """Preprocess a single flow dict into scaled feature vector."""
-        try:
-            row = {}
-            for col in payload:
-                if col in _ALL_DROP:
-                    continue
-                row[col] = payload[col]
-
-            # Port categorization
-            dst_port = payload.get("dst_port", 0)
-            port_cat = _categorize_port(dst_port)
-            row["port_well_known"] = 1.0 if port_cat == "well_known" else 0.0
-            row["port_registered"] = 1.0 if port_cat == "registered" else 0.0
-            row["port_dynamic"] = 1.0 if port_cat == "dynamic" else 0.0
-            row.pop("dst_port", None)
-            row.pop("src_port", None)
-
-            # Protocol one-hot
-            proto = payload.get("protocol", 0)
-            try:
-                proto = int(proto)
-            except (TypeError, ValueError):
-                proto = 0
-            row["proto_6"] = 1.0 if proto == 6 else 0.0
-            row["proto_17"] = 1.0 if proto == 17 else 0.0
-            row.pop("protocol", None)
-
-            # JA4 frequency encoding
-            for col in _JA4_FREQ_ENCODE:
-                val = payload.get(col)
-                fmap = self.freq_maps.get(col, {})
-                row[col + "_freq"] = float(fmap.get(val, 0))
-                row.pop(col, None)
-
-            # JA4 categorical encoding
-            for col in _JA4_CAT_ENCODE:
-                val = payload.get(col)
-                cmap = self.cat_maps.get(col, {})
-                row[col + "_enc"] = float(cmap.get(val, 0))
-                row.pop(col, None)
-
-            # Build vector in correct column order
-            vec = np.zeros(len(self.feature_cols), dtype=np.float32)
-            for i, col in enumerate(self.feature_cols):
-                val = row.get(col, 0)
-                try:
-                    vec[i] = float(val) if val is not None else 0.0
-                except (TypeError, ValueError):
-                    vec[i] = 0.0
-
-            # Replace inf/nan
-            vec = np.nan_to_num(vec, nan=0.0, posinf=0.0, neginf=0.0)
-
-            # Scale
-            vec = self.scaler.transform(vec.reshape(1, -1))
-            return vec
-
-        except Exception as e:
-            logger.debug("BaselineModule: preprocess error — %s", e)
-            return None
-
-    def predict(self, record: FeatureRecord) -> DetectionResult:
-        if not self.is_loaded:
-            return DetectionResult(
-                module=self.name, label="benign", confidence=0.0,
-                rationale="Baseline model not loaded", score=0.0,
-                metadata={"baseline_loaded": False},
-            )
-
-        vec = self._preprocess_single(record.payload)
-        if vec is None:
-            return DetectionResult(
-                module=self.name, label="benign", confidence=0.0,
-                rationale="Preprocessing failed", score=0.0,
-                metadata={"baseline_loaded": True, "preprocess_error": True},
-            )
-
-        try:
-            tensor = torch.FloatTensor(vec)
-            with torch.no_grad():
-                recon = self.model(tensor)
-                mse = torch.mean((tensor - recon) ** 2, dim=1).item()
-
-            is_anomaly = mse > self.threshold
-            # Normalize confidence: 0 at threshold, 1 at 3× threshold
-            confidence = min(1.0, max(0.0, (mse - self.threshold) / (2 * self.threshold))) if is_anomaly else 0.0
-
-            return DetectionResult(
-                module=self.name,
-                label="malicious" if is_anomaly else "benign",
-                confidence=round(confidence, 4),
-                rationale=f"Reconstruction error {mse:.4f} {'>' if is_anomaly else '<='} threshold {self.threshold:.4f}",
-                score=round(mse, 6),
-                metadata={
-                    "baseline_loaded": True,
-                    "reconstruction_error": round(mse, 6),
-                    "threshold": round(self.threshold, 6),
-                    "is_anomaly": is_anomaly,
-                },
-            )
-        except Exception as e:
-            logger.error("BaselineModule: inference error — %s", e)
-            return DetectionResult(
-                module=self.name, label="benign", confidence=0.0,
-                rationale=f"Inference error: {e}", score=0.0,
-                metadata={"baseline_loaded": True, "inference_error": str(e)},
-            )
-
-
-# ──────────────────────────────────────────────────────────────────────
 # Stage 1: JA4 + Flow Stats Detection Module
 # ──────────────────────────────────────────────────────────────────────
 
@@ -448,16 +181,13 @@ class Ja4Module(DetectionModule):
 class DetectionEngine:
     """
     Multi-stage detection pipeline:
-      Stage 0: Baseline Anomaly Detection (Deep Autoencoder — unsupervised)
+      Stage 0: Baseline Anomaly Detection (placeholder — coming soon)
       Stage 1: JA4 + Flow Stats model → malicious/benign verdict
       Stage 2: TTP Classification → MITRE ATT&CK techniques (runs on malicious flows)
       Stage 3: APT Attribution → APT group similarity (aggregated per-actor, on-demand)
     """
 
     def __init__(self, model_dir: str = "ml_models"):
-        # Stage 0: Baseline anomaly detection
-        self.baseline_module = BaselineModule()
-
         # Stage 1: JA4 detection
         self.ja4_module = Ja4Module()
 
@@ -468,8 +198,7 @@ class DetectionEngine:
         self.apt_module = APTAttributionModule()
 
         logger.info(
-            "DetectionEngine initialized — Baseline: %s, JA4: %s, TTP: %s, APT: %s",
-            "loaded" if self.baseline_module.is_loaded else "no-model",
+            "DetectionEngine initialized — JA4: %s, TTP: %s, APT: %s",
             "loaded" if self.ja4_module.model else "no-model",
             "loaded" if self.ttp_module.is_loaded else "no-model",
             "loaded" if self.apt_module.is_loaded else "no-stix",
@@ -499,16 +228,9 @@ class DetectionEngine:
         -------
         (record, aggregate_decision, module_results, ttp_result)
         """
-        module_results = []
-
-        # Stage 0: Baseline anomaly detection
-        if self.baseline_module.is_loaded:
-            baseline_result = self.baseline_module.predict(record)
-            module_results.append(baseline_result)
-
         # Stage 1: JA4 detection
         ja4_result = self.ja4_module.predict(record)
-        module_results.append(ja4_result)
+        module_results = [ja4_result]
 
         # Aggregate verdict (currently just JA4)
         aggregate = self._aggregate(module_results)
