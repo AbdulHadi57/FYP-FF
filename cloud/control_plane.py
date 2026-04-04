@@ -439,13 +439,20 @@ def register_agent(request: AgentRegistrationRequest):
                 "SELECT id FROM domain_controllers WHERE (id = ? OR hostname = ? OR fqdn = ?) AND approval_status = 'approved' LIMIT 1",
                 (dc_hint, dc_hint, dc_hint),
             ).fetchone()
+            
         if not approved_dc and domain:
             approved_dc = conn.execute(
                 "SELECT id FROM domain_controllers WHERE domain_fqdn = ? AND approval_status = 'approved' LIMIT 1",
                 (domain,),
             ).fetchone()
-        if not approved_dc:
-            # Try any approved DC as last resort
+            if not approved_dc:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Domain '{domain}' is not registered or not approved. Please provide a valid domain.",
+                )
+
+        if not approved_dc and not domain and not dc_hint:
+            # Try any approved DC as last resort only if no domain or hint were explicitly provided
             approved_dc = conn.execute(
                 "SELECT id FROM domain_controllers WHERE approval_status = 'approved' LIMIT 1"
             ).fetchone()

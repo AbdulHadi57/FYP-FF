@@ -8,6 +8,7 @@ import {
 
 export default function ThreatIntelTab() {
   const [expandedActor, setExpandedActor] = useState(null);
+  const [expandedFlows, setExpandedFlows] = useState({});
   const [c2Intel, setC2Intel] = useState([]);
   const [loadingC2, setLoadingC2] = useState(true);
 
@@ -292,14 +293,33 @@ export default function ThreatIntelTab() {
                                   <h4 style={{ margin: '0 0 12px', fontSize: '0.85rem', color: '#00e0ff', textTransform: 'uppercase', letterSpacing: 1 }}>Recent Window Flow Trace</h4>
                                   <div style={{ maxHeight: '160px', overflowY: 'auto' }}>
                                     {actorFlows.length > 0 ? actorFlows.map((flw, i) => {
-                                      const ttpCount = flw.ttp_predictions ? JSON.parse(flw.ttp_predictions).length : 0;
+                                      const ttps = flw.ttp_predictions ? JSON.parse(flw.ttp_predictions) : [];
+                                      const isFlowOpen = expandedFlows[flw.id || i];
+                                      const toggleFlow = () => setExpandedFlows(prev => ({ ...prev, [flw.id || i]: !prev[flw.id || i] }));
                                       return (
-                                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.02)', fontSize: '0.8rem' }}>
-                                          <span className="mono" style={{ color: '#e7eefb' }}>&rarr; {flw.dst_ip}:{flw.dst_port}</span>
-                                          <span style={{ color: '#8d97aa' }}>{ttpCount} TTPs injected</span>
+                                        <div key={i} style={{ display: 'flex', flexDirection: 'column', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
+                                          <div 
+                                            style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', cursor: ttps.length > 0 ? 'pointer' : 'default', alignItems: 'center' }}
+                                            onClick={ttps.length > 0 ? toggleFlow : undefined}
+                                          >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                              {ttps.length > 0 ? (isFlowOpen ? <ChevronUp size={12} style={{ color: '#00e0ff' }}/> : <ChevronDown size={12} style={{ color: '#8d97aa' }}/>) : <div style={{ width: 12 }}></div>}
+                                              <span className="mono" style={{ color: isFlowOpen ? '#00e0ff' : '#e7eefb', transition: 'color 0.2s' }}>&rarr; {flw.dst_ip}:{flw.dst_port}</span>
+                                            </div>
+                                            <span style={{ color: '#8d97aa' }}>{ttps.length} TTPs injected</span>
+                                          </div>
+                                          {isFlowOpen && ttps.length > 0 && (
+                                            <div style={{ padding: '8px 0 4px 22px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                              {ttps.map((ttp, idx) => (
+                                                <div key={idx} style={{ fontSize: '0.72rem', color: '#9f8fff', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                  <Zap size={10} style={{ opacity: 0.6 }} /> {ttp.technique_id} — {ttp.technique_name}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
                                         </div>
                                       );
-                                    }) : <div style={{ fontSize: '0.8rem', color: '#8d97aa' }}>No precise flows recorded in training dummy set.</div>}
+                                    }) : <div style={{ fontSize: '0.8rem', color: '#8d97aa' }}>No precise flows recorded.</div>}
                                   </div>
                                 </div>
 
