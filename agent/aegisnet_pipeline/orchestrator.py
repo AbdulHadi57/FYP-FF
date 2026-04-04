@@ -120,7 +120,12 @@ class TrafficPipeline:
             if started:
                 self.storage.log("INFO", "Control-plane registration and websocket channel started")
             else:
-                self.storage.log("WARNING", "Control-plane registration failed; continuing in ingest-only mode")
+                self.storage.log("ERROR", "Control-plane registration failed. Agent cannot operate without a valid domain registration.")
+                self.storage.log("ERROR", "Please verify the domain FQDN and ensure a Domain Controller is approved in the dashboard.")
+                if self.control_client:
+                    self.control_client.stop()
+                self.storage.close()
+                return
 
         while True:
             try:
