@@ -183,10 +183,10 @@ def main():
     from pathlib import Path
     storage = PipelineStorage(Path("data/replay_temp.db"), server_url=args.server)
 
-    if not storage.check_backend_health():
-        logger.error("Cloud backend at %s is not reachable! Start the server first.", args.server)
-        sys.exit(1)
-    logger.info("Cloud backend health check passed!")
+    if storage.check_backend_health():
+        logger.info("Cloud backend health check passed!")
+    else:
+        logger.warning("Cloud backend not reachable yet — will retry on each flow send.")
 
     total_flows = 0
     for i, pcap_path in enumerate(pcap_files):
