@@ -18,6 +18,8 @@ class Flow(BaseModel):
     apt_matches: Optional[str] = None
     confidence: float
     severity: float
+    traffic_type: Optional[str] = "other"
+    traffic_type_confidence: Optional[float] = 0.0
     summary: str
     features_json: Optional[str] = "{}"
     sni: Optional[str] = None

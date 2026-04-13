@@ -10,6 +10,7 @@ import {
   FileText,
   Siren,
   Activity,
+  Network,
   Wifi,
   WifiOff,
   RefreshCw,
@@ -22,6 +23,8 @@ import ControlPlaneTab from './tabs/ControlPlaneTab';
 import AuditTrailTab from './tabs/AuditTrailTab';
 import BehavioralAnalyticsTab from './tabs/BehavioralAnalyticsTab';
 import TtpMitreTab from './tabs/TtpMitreTab';
+import AnomalyTrafficTab from './tabs/AnomalyTrafficTab';
+import TrafficTypeTab from './tabs/TrafficTypeTab';
 
 const API = import.meta.env.VITE_API_URL || '';
 const CONTROL_KEY = import.meta.env.VITE_CONTROL_API_KEY || (typeof window !== 'undefined' ? window.localStorage.getItem('AEGIS_CONTROL_API_KEY') || '' : '');
@@ -33,6 +36,8 @@ if (CONTROL_KEY) {
 const TABS = [
   { id: 'overview', label: 'Command Center', icon: LayoutDashboard },
   { id: 'behavioral', label: 'Behavioral Engines', icon: Activity },
+  { id: 'anomaly', label: 'Anomaly Canvas', icon: Siren },
+  { id: 'traffic-type', label: 'Traffic Types', icon: Network },
   { id: 'intel', label: 'Threat Intel', icon: Crosshair },
   { id: 'ttp', label: 'MITRE ATT&CK', icon: Users }, // Using Users icon since lucide-react doesn't have Target imported easily without another replace
   { id: 'investigator', label: 'Investigator', icon: Database },
@@ -174,6 +179,19 @@ export default function App() {
           />
         )}
         {activeTab === 'behavioral'  && <BehavioralAnalyticsTab />}
+        {activeTab === 'anomaly'     && (
+          <AnomalyTrafficTab
+            api={API}
+            autoRefreshSeconds={refreshSeconds}
+            timeRangeSeconds={timeRangeSeconds}
+          />
+        )}
+        {activeTab === 'traffic-type' && (
+          <TrafficTypeTab
+            api={API}
+            autoRefreshSeconds={refreshSeconds}
+          />
+        )}
         {activeTab === 'intel'       && <ThreatIntelTab {...sharedProps} />}
         {activeTab === 'ttp'         && <TtpMitreTab />}
         {activeTab === 'investigator'  && (

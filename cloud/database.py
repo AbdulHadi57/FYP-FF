@@ -54,6 +54,8 @@ def _init_schema(conn):
             verdict TEXT,
             confidence REAL,
             severity REAL,
+            traffic_type TEXT DEFAULT 'other',
+            traffic_type_confidence REAL DEFAULT 0,
             summary TEXT,
             features_json TEXT,
             is_resolved INTEGER DEFAULT 0,
@@ -253,6 +255,8 @@ def _init_schema(conn):
     # Pipeline v2 migration: add TTP and APT columns to flows
     _ensure_column(conn, "flows", "ttp_predictions", "TEXT")
     _ensure_column(conn, "flows", "apt_matches", "TEXT")
+    _ensure_column(conn, "flows", "traffic_type", "TEXT DEFAULT 'other'")
+    _ensure_column(conn, "flows", "traffic_type_confidence", "REAL DEFAULT 0")
     conn.commit()
 
 

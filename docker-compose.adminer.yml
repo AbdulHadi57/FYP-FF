@@ -1,0 +1,10 @@
+services:
+  adminer:
+    image: adminer:latest
+    container_name: aegisnet-adminer
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    volumes:
+      # Mount SQLite DB file at a simple in-container path accepted by Adminer
+      - ./cloud/data/aegisnet_live.db:/var/www/html/aegisnet_live.db:ro

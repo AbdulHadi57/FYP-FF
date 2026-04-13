@@ -55,7 +55,20 @@ def _normalize_server_url(value: str) -> str:
 
 
 def _default_interface() -> str:
-    return "eth0" if platform.system().lower() != "windows" else "Ethernet"
+    # Prefer Scapy's detected default interface on all platforms.
+    try:
+        from scapy.all import conf  # type: ignore
+        if conf.iface:
+            return str(conf.iface)
+    except Exception:
+        pass
+
+    if platform.system().lower() != "windows":
+        return "eth0"
+
+    # On Windows, Scapy/libpcap usually exposes interfaces as NPF GUIDs,
+    # not friendly names like "Ethernet".
+    return "Ethernet"
 
 
 def _prompt(label: str, default: str | None = None, required: bool = False) -> str | None:

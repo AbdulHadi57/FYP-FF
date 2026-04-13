@@ -12,6 +12,7 @@ from scapy.all import *
 from scapy.layers.inet import IP, TCP, UDP
 from scapy.layers.inet6 import IPv6
 from scapy.layers.tls.all import * # Ensure TLS layers are loaded
+from scapy.interfaces import resolve_iface
 from datetime import datetime
 import logging
 import json
@@ -1096,6 +1097,18 @@ class AegisNetCapture:
             iface_to_use = self.interface
         else:
             iface_to_use = conf.iface # Default scapy interface
+
+        # Validate configured interface and fall back to Scapy default if needed.
+        try:
+            resolve_iface(iface_to_use)
+        except Exception:
+            fallback_iface = conf.iface
+            self.logger.warning(
+                "Configured interface '%s' not found. Falling back to Scapy default '%s'.",
+                iface_to_use,
+                fallback_iface,
+            )
+            iface_to_use = fallback_iface
             
         self.logger.info(f"Starting capture on {iface_to_use}...")
         self.logger.info(f"Press Ctrl+C to stop...")

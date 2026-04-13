@@ -97,6 +97,10 @@ def run_migrations():
             conn.execute("ALTER TABLE flows ADD COLUMN ttp_predictions TEXT")
         if "apt_matches" not in columns:
             conn.execute("ALTER TABLE flows ADD COLUMN apt_matches TEXT")
+        if "traffic_type" not in columns:
+            conn.execute("ALTER TABLE flows ADD COLUMN traffic_type TEXT DEFAULT 'other'")
+        if "traffic_type_confidence" not in columns:
+            conn.execute("ALTER TABLE flows ADD COLUMN traffic_type_confidence REAL DEFAULT 0")
 
         conn.commit()
     except Exception as e:
@@ -121,8 +125,10 @@ def health_check():
         "status": "ok",
         "ws_backend": _detect_ws_backend() or "missing",
         "pipeline": {
+            "behavioral_model": engine.behavior_module.is_loaded,
             "ja4_model": engine.ja4_module.model is not None,
             "ttp_model": engine.ttp_module.is_loaded,
+            "traffic_type_model": engine.traffic_type_module.is_loaded,
             "apt_stix": engine.apt_module.is_loaded,
         }
     }
@@ -272,7 +278,8 @@ def get_flows(limit: int = 100, search: str = None, filters: str = None, min_id:
             SELECT id, captured_at, src_ip, src_port, dst_ip, dst_port, protocol,
                    total_packets, flow_duration, verdict, 
                    ja4_pred, ttp_predictions, apt_matches,
-                   confidence, severity, summary, features_json
+                     confidence, severity, traffic_type, traffic_type_confidence,
+                     summary, features_json
             FROM flows
         """
         params = []
@@ -629,10 +636,11 @@ def get_module_stats(limit: int = 1000):
             GROUP BY module_name
         """).fetchall()
 
-        module_activity = {"ja4": 0, "ttp": ttp_total_predictions, "apt": 0}
+        module_activity = {"behavioral": 0, "ja4": 0, "ttp": ttp_total_predictions, "apt": 0}
         for row in mod_activity_rows:
             name = row[0]
             count = row[1]
+            if name == 'behavioral-baseline': module_activity["behavioral"] = count
             if name == 'ja4-module': module_activity["ja4"] = count
 
         # TTP top techniques
@@ -672,6 +680,248 @@ def get_module_stats(limit: int = 1000):
             module_activity=module_activity,
             threat_status_distribution=threat_status,
         )
+    finally:
+        conn.close()
+
+
+@app.get("/api/behavioral/overview")
+def get_behavioral_overview(limit: int = 300):
+    limit = _clamp_limit(limit, 20, 2000)
+    conn = get_db_connection()
+    try:
+        total_flows = conn.execute("SELECT COUNT(*) FROM flows").fetchone()[0]
+
+        anomaly_count = conn.execute(
+            """
+            SELECT COUNT(DISTINCT flow_id)
+            FROM module_decisions
+            WHERE module_name = 'behavioral-baseline' AND label = 'malicious'
+            """
+        ).fetchone()[0]
+
+        benign_count = conn.execute(
+            """
+            SELECT COUNT(DISTINCT flow_id)
+            FROM module_decisions
+            WHERE module_name = 'behavioral-baseline' AND label = 'benign'
+            """
+        ).fetchone()[0]
+
+        timeline_rows = conn.execute(
+            """
+            SELECT
+                substr(f.captured_at, 1, 16) AS bucket,
+                COUNT(*) AS total,
+                SUM(CASE WHEN md.label = 'malicious' THEN 1 ELSE 0 END) AS anomalies,
+                SUM(CASE WHEN md.label = 'benign' THEN 1 ELSE 0 END) AS normals
+            FROM flows f
+            LEFT JOIN module_decisions md
+                ON md.flow_id = f.id
+                AND md.module_name = 'behavioral-baseline'
+            GROUP BY bucket
+            ORDER BY bucket DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+        timeline = [
+            {
+                "bucket": row["bucket"],
+                "total": int(row["total"] or 0),
+                "anomalies": int(row["anomalies"] or 0),
+                "normals": int(row["normals"] or 0),
+            }
+            for row in reversed(timeline_rows)
+        ]
+
+        anomaly_rows = conn.execute(
+            """
+            SELECT f.id, f.captured_at, f.src_ip, f.dst_ip, f.dst_port, f.protocol,
+                   f.verdict, md.confidence, md.score, md.rationale
+            FROM module_decisions md
+            JOIN flows f ON f.id = md.flow_id
+            WHERE md.module_name = 'behavioral-baseline' AND md.label = 'malicious'
+            ORDER BY f.captured_at DESC
+            LIMIT 50
+            """
+        ).fetchall()
+
+        normal_rows = conn.execute(
+            """
+            SELECT f.id, f.captured_at, f.src_ip, f.dst_ip, f.dst_port, f.protocol,
+                   f.verdict, md.confidence, md.score, md.rationale
+            FROM module_decisions md
+            JOIN flows f ON f.id = md.flow_id
+            WHERE md.module_name = 'behavioral-baseline' AND md.label = 'benign'
+            ORDER BY f.captured_at DESC
+            LIMIT 50
+            """
+        ).fetchall()
+
+        anomalies = [
+            {
+                "id": row["id"],
+                "captured_at": row["captured_at"],
+                "src_ip": row["src_ip"],
+                "dst_ip": row["dst_ip"],
+                "dst_port": row["dst_port"],
+                "protocol": row["protocol"],
+                "verdict": row["verdict"],
+                "confidence": float(row["confidence"] or 0.0),
+                "score": float(row["score"] or 0.0),
+                "rationale": row["rationale"] or "",
+            }
+            for row in anomaly_rows
+        ]
+
+        normals = [
+            {
+                "id": row["id"],
+                "captured_at": row["captured_at"],
+                "src_ip": row["src_ip"],
+                "dst_ip": row["dst_ip"],
+                "dst_port": row["dst_port"],
+                "protocol": row["protocol"],
+                "verdict": row["verdict"],
+                "confidence": float(row["confidence"] or 0.0),
+                "score": float(row["score"] or 0.0),
+                "rationale": row["rationale"] or "",
+            }
+            for row in normal_rows
+        ]
+
+        return {
+            "model_loaded": bool(engine.behavior_module.is_loaded),
+            "total_flows": int(total_flows),
+            "anomaly_count": int(anomaly_count),
+            "normal_count": int(benign_count),
+            "timeline": timeline,
+            "anomalies": anomalies,
+            "normals": normals,
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/api/traffic-types/overview")
+def get_traffic_type_overview(limit: int = 300):
+    limit = _clamp_limit(limit, 20, 2000)
+    conn = get_db_connection()
+    try:
+        labels = ["DNS", "FTP", "SSH", "VPN", "HTTPS", "other"]
+        palette = {
+            "DNS": "#00d8ff",
+            "FTP": "#ff9a3d",
+            "SSH": "#ff5470",
+            "VPN": "#9f8fff",
+            "HTTPS": "#54a6ff",
+            "other": "#8d97aa",
+        }
+
+        total_predictions = conn.execute(
+            "SELECT COUNT(*) FROM flows WHERE traffic_type IS NOT NULL"
+        ).fetchone()[0]
+
+        dist_rows = conn.execute(
+            """
+            SELECT COALESCE(NULLIF(traffic_type, ''), 'other') AS label, COUNT(*) AS cnt
+            FROM flows
+            GROUP BY label
+            """
+        ).fetchall()
+        counts = {label: 0 for label in labels}
+        for row in dist_rows:
+            label = str(row["label"] or "other")
+            if label not in counts:
+                label = "other"
+            counts[label] += int(row["cnt"] or 0)
+
+        distribution = []
+        for label in labels:
+            count = counts[label]
+            pct = (100.0 * count / total_predictions) if total_predictions else 0.0
+            distribution.append(
+                {
+                    "label": label,
+                    "count": count,
+                    "pct": round(pct, 2),
+                    "color": palette[label],
+                }
+            )
+
+        timeline_rows = conn.execute(
+            """
+            SELECT
+                substr(captured_at, 1, 16) AS bucket,
+                SUM(CASE WHEN traffic_type = 'DNS' THEN 1 ELSE 0 END) AS dns,
+                SUM(CASE WHEN traffic_type = 'FTP' THEN 1 ELSE 0 END) AS ftp,
+                SUM(CASE WHEN traffic_type = 'SSH' THEN 1 ELSE 0 END) AS ssh,
+                SUM(CASE WHEN traffic_type = 'VPN' THEN 1 ELSE 0 END) AS vpn,
+                SUM(CASE WHEN traffic_type = 'HTTPS' THEN 1 ELSE 0 END) AS https,
+                SUM(CASE WHEN traffic_type = 'other' OR traffic_type IS NULL OR traffic_type = '' THEN 1 ELSE 0 END) AS other,
+                COUNT(*) AS total
+            FROM flows
+            GROUP BY bucket
+            ORDER BY bucket DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+        timeline = []
+        for row in reversed(timeline_rows):
+            timeline.append(
+                {
+                    "bucket": row["bucket"],
+                    "DNS": int(row["dns"] or 0),
+                    "FTP": int(row["ftp"] or 0),
+                    "SSH": int(row["ssh"] or 0),
+                    "VPN": int(row["vpn"] or 0),
+                    "HTTPS": int(row["https"] or 0),
+                    "other": int(row["other"] or 0),
+                    "total": int(row["total"] or 0),
+                }
+            )
+
+        recent_rows = conn.execute(
+            """
+            SELECT id, captured_at, src_ip, dst_ip, src_port, dst_port, protocol,
+                   verdict, traffic_type, traffic_type_confidence
+            FROM flows
+            ORDER BY id DESC
+            LIMIT 60
+            """
+        ).fetchall()
+
+        recent = []
+        for row in recent_rows:
+            label = str(row["traffic_type"] or "other")
+            if label not in labels:
+                label = "other"
+            recent.append(
+                {
+                    "id": row["id"],
+                    "captured_at": row["captured_at"],
+                    "src_ip": row["src_ip"],
+                    "dst_ip": row["dst_ip"],
+                    "src_port": row["src_port"],
+                    "dst_port": row["dst_port"],
+                    "protocol": row["protocol"],
+                    "verdict": row["verdict"],
+                    "traffic_type": label,
+                    "traffic_type_confidence": float(row["traffic_type_confidence"] or 0.0),
+                }
+            )
+
+        return {
+            "model_loaded": bool(engine.traffic_type_module.is_loaded),
+            "total_predictions": int(total_predictions),
+            "known_labels": labels,
+            "distribution": distribution,
+            "timeline": timeline,
+            "recent": recent,
+        }
     finally:
         conn.close()
 
@@ -911,9 +1161,14 @@ def ingest_flow(data: IngestRequest):
 
         # 3. Extract JA4 prediction
         ja4_pred = "none"
+        traffic_type = "other"
+        traffic_type_confidence = 0.0
         for res in results:
             if "ja4" in res.module.lower():
                 ja4_pred = res.label
+            if res.module == "traffic-type":
+                traffic_type = str(res.label or "other")
+                traffic_type_confidence = float(res.confidence or 0.0)
 
         # 4. Serialize TTP predictions
         ttp_json = None
@@ -921,6 +1176,8 @@ def ingest_flow(data: IngestRequest):
             ttp_json = json.dumps(ttp_result.to_dict())
 
         # 5. Store
+        payload["traffic_type"] = traffic_type
+        payload["traffic_type_confidence"] = traffic_type_confidence
         features_json = json.dumps(payload)
         with conn:
             cursor = conn.execute("""
@@ -928,14 +1185,17 @@ def ingest_flow(data: IngestRequest):
                     captured_at, src_ip, dst_ip, src_port, dst_port, protocol,
                     total_packets, flow_duration, ja4, ja4s, ja4h,
                     ja4_pred, ttp_predictions,
-                    verdict, confidence, severity, summary, features_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    verdict, confidence, severity,
+                    traffic_type, traffic_type_confidence,
+                    summary, features_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 data.captured_at, data.src_ip, data.dst_ip, data.src_port, data.dst_port, data.protocol,
                 data.total_packets, data.flow_duration,
                 payload.get("ja4", "None"), payload.get("ja4s", "None"), payload.get("ja4h", "None"),
                 ja4_pred, ttp_json,
                 aggregate.verdict, aggregate.confidence, aggregate.severity,
+                traffic_type, traffic_type_confidence,
                 f"{data.src_ip}:{data.src_port} -> {data.dst_ip}:{data.dst_port}",
                 features_json
             ))
@@ -952,6 +1212,7 @@ def ingest_flow(data: IngestRequest):
             "status": "ok",
             "flow_id": flow_id,
             "verdict": aggregate.verdict,
+            "traffic_type": traffic_type,
             "ttp_count": ttp_result.technique_count if ttp_result else 0,
         }
     except Exception as e:
@@ -1027,6 +1288,9 @@ def get_events(limit: int = 50, status: str = "all", module: Optional[str] = Non
                     if db_module == 'ja4-module':
                         event_type = "Malicious JA4 Fingerprint Match"
                         module_source = "ja4"
+                    elif db_module == 'behavioral-baseline':
+                        event_type = "Behavioral Anomaly Detection"
+                        module_source = "behavioral"
                     else:
                         event_type = "High Confidence Malicious Flow"
                         module_source = "ja4"

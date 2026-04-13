@@ -94,11 +94,23 @@ export default function DetectionPipeline({
 
   const stageCards = [
     {
+      id: 'behavioral',
+      label: 'Stage 0: Behavioral Baseline',
+      icon: Activity,
+      ready: Boolean(pipeline.behavioral_model),
+      input: totalFlows,
+      output: activity.behavioral || 0,
+      accent: '#ff5e7a',
+      detail: 'Unsupervised anomaly filtering before supervised threat modules',
+      actionLabel: 'Open anomaly canvas',
+      action: () => onPivot?.({ targetTab: 'anomaly' }),
+    },
+    {
       id: 'ja4',
       label: 'Stage 1: JA4 Detection',
       icon: Fingerprint,
       ready: Boolean(pipeline.ja4_model),
-      input: totalFlows,
+      input: activity.behavioral || totalFlows,
       output: activity.ja4 || 0,
       accent: '#00e0ff',
       detail: 'Flow fingerprinting and first-pass malicious classification',
