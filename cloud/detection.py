@@ -121,7 +121,7 @@ class BehavioralBaselineModule(DetectionModule):
     def _load_bundle(self) -> None:
         try:
             base_path = os.path.dirname(os.path.abspath(__file__))
-            bundle_path = os.path.join(base_path, self.model_dir, "network_autoencoder_bundle.pkl")
+            bundle_path = os.path.join(base_path, self.model_dir, "network_baseline_bundle.pkl")
             if not os.path.exists(bundle_path):
                 logger.warning("BehavioralBaselineModule: bundle not found at %s", bundle_path)
                 return

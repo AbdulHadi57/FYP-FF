@@ -3,7 +3,7 @@ import { Activity, Radio, Fingerprint, Radar, AlertCircle, Network, Server, Glob
 import { 
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, 
   ScatterChart, Scatter, ZAxis, Cell, Label,
-  RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis
+  BarChart, Bar
 } from 'recharts';
 import axios from 'axios';
 
@@ -342,16 +342,17 @@ export default function BehavioralAnalyticsTab() {
                 }
                 return (
                   <ResponsiveContainer width="100%" height="100%">
-                     <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
-                       <PolarGrid stroke="rgba(255,51,102,0.2)" />
-                       <PolarAngleAxis dataKey="region" tick={{ fill: '#8d97aa', fontSize: 11 }} />
-                       <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                     <BarChart data={radarData} layout="vertical" margin={{ top: 20, right: 30, left: 10, bottom: 5 }}>
+                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={true} vertical={false} />
+                       <XAxis type="number" domain={[0, 100]} hide />
+                       <YAxis type="category" dataKey="region" tick={{ fill: '#8d97aa', fontSize: 11 }} axisLine={false} tickLine={false} width={80} />
                        <Tooltip 
                          contentStyle={{ background: 'rgba(5,8,15,0.95)', border: '1px solid rgba(255,51,102,0.4)', borderRadius: 8 }}
                          itemStyle={{ color: '#ff3366', fontSize: '0.85rem' }}
+                         cursor={{ fill: 'rgba(255,51,102,0.1)' }}
                        />
-                       <Radar name="Threat Density Risk" dataKey="risk" stroke="#ff3366" fill="#ff3366" fillOpacity={0.4} />
-                     </RadarChart>
+                       <Bar dataKey="risk" fill="#ff3366" radius={[0, 4, 4, 0]} barSize={15} />
+                     </BarChart>
                   </ResponsiveContainer>
                 );
              })()}
