@@ -23,8 +23,8 @@ export default function TtpMitreTab() {
     const fetchTTPs = async () => {
       try {
         const [modRes, flowsRes] = await Promise.all([
-           axios.get('http://localhost:8000/api/modules'),
-           axios.get('http://localhost:8000/api/flows?limit=300')
+           axios.get('/api/modules'),
+           axios.get('/api/flows?limit=300')
         ]);
         if (!active) return;
         

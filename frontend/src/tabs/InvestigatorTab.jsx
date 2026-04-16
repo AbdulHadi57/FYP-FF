@@ -19,7 +19,7 @@ export default function InvestigatorTab() {
     let active = true;
     const fetchFlows = async () => {
       try {
-        const res = await axios.get('http://localhost:8000/api/flows?limit=300');
+        const res = await axios.get('/api/flows?limit=300');
         if (active) {
           setFlowsData(res.data || []);
           setLoading(false);

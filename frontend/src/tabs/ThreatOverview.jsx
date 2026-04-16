@@ -67,11 +67,11 @@ export default function ThreatOverview() {
     const fetchData = async () => {
       try {
         const [statsRes, timeRes, modRes, flowsRes, etaRes] = await Promise.all([
-          axios.get('http://localhost:8000/api/stats'),
-          axios.get('http://localhost:8000/api/timeline'),
-          axios.get('http://localhost:8000/api/modules'),
-          axios.get('http://localhost:8000/api/flows?limit=300'),
-          axios.get('http://localhost:8000/api/eta/overview')
+          axios.get('/api/stats'),
+          axios.get('/api/timeline'),
+          axios.get('/api/modules'),
+          axios.get('/api/flows?limit=300'),
+          axios.get('/api/eta/overview')
         ]);
         
         if (!active) return;

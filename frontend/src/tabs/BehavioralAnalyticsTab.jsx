@@ -33,11 +33,11 @@ export default function BehavioralAnalyticsTab() {
     const fetchAnalytics = async () => {
       try {
         const [statsRes, timeRes, modRes, flowsRes, c2Res] = await Promise.all([
-           axios.get('http://localhost:8000/api/stats'),
-           axios.get('http://localhost:8000/api/timeline'),
-           axios.get('http://localhost:8000/api/modules'),
-           axios.get('http://localhost:8000/api/flows?limit=300'),
-           axios.get('http://localhost:8000/api/c2-intel')
+           axios.get('/api/stats'),
+           axios.get('/api/timeline'),
+           axios.get('/api/modules'),
+           axios.get('/api/flows?limit=300'),
+           axios.get('/api/c2-intel')
         ]);
         if (!active) return;
         
