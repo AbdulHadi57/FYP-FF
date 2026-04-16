@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { ShieldAlert, Crosshair, Server, Lock, Activity, ArrowRight, Zap, Target, Search, Clock } from 'lucide-react';
+import { ShieldAlert, Crosshair, Server, Lock, Activity, ArrowRight, Zap, Target, Search, Clock, Shield } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
 
 import MITRE_DICT from '../MITRE_DICT.json';
 
@@ -23,13 +24,12 @@ export default function TtpMitreTab() {
       try {
         const [modRes, flowsRes] = await Promise.all([
            axios.get('http://localhost:8000/api/modules'),
-           axios.get('http://localhost:8000/api/flows?limit=200') // Adjust base URL if needed
+           axios.get('http://localhost:8000/api/flows?limit=300')
         ]);
         if (!active) return;
         
         setTtpStats(modRes.data);
         
-        // Filter only malicious flows that have TTP predictions mapped and are NOT aimed at the AegisNet Server API
         const malFlows = (flowsRes.data || []).filter(f => f.verdict === 'malicious' && f.ttp_predictions && String(f.dst_port) !== '8000');
         
         setFlows(malFlows);
@@ -46,14 +46,41 @@ export default function TtpMitreTab() {
 
   if (loading) return <div className="loading-spinner"><div className="spinner" /></div>;
 
-  // Compute active TTP frequencies from stats
   const activeTechniques = Object.entries(ttpStats?.ttp_technique_counts || {})
-    .sort((a, b) => b[1] - a[1]) // Sort by count descending
-    .slice(0, 10);
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 15);
+
+  const tacticCounts = {};
+  activeTechniques.forEach(([ttpId, count]) => {
+      const meta = MITRE_DICT[ttpId] || { tactic: 'Uncategorized' };
+      tacticCounts[meta.tactic] = (tacticCounts[meta.tactic] || 0) + count;
+  });
+  const tacticData = Object.entries(tacticCounts).map(([name, count]) => ({ name, count })).sort((a,b) => b.count - a.count);
+
+  const correlationMap = {};
+  flows.forEach(flow => {
+      let parseTTPs = [];
+      try {
+        parseTTPs = typeof flow.ttp_predictions === 'string' ? JSON.parse(flow.ttp_predictions) : flow.ttp_predictions;
+      } catch(e) {}
+      
+      parseTTPs.forEach(t => {
+          const tid = t.technique_id;
+          if (!correlationMap[tid]) correlationMap[tid] = {};
+          correlationMap[tid][flow.src_ip] = (correlationMap[tid][flow.src_ip] || 0) + 1;
+      });
+  });
+
+  const correlationRows = [];
+  Object.keys(correlationMap).forEach(tid => {
+      Object.keys(correlationMap[tid]).forEach(ip => {
+          correlationRows.push({ tid, ip, count: correlationMap[tid][ip] });
+      });
+  });
+  correlationRows.sort((a, b) => b.count - a.count);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Header */}
       <div className="card glass-panel" style={{ padding: 20 }}>
         <h2 style={{ margin: '0 0 8px', fontSize: '1.4rem', color: '#ff3366', display: 'flex', alignItems: 'center', gap: 10 }}>
           <Crosshair size={24} style={{ color: '#ff3366' }} />
@@ -66,9 +93,7 @@ export default function TtpMitreTab() {
 
       <div className="grid-2" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 0.8fr)', gap: 20 }}>
         
-        {/* Left Side: Active TTP Distribution & Traces */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          
           <div className="card glass-panel" style={{ padding: 20 }}>
             <h3 style={{ margin: '0 0 16px', fontSize: '1.1rem', color: '#e7eefb', display: 'flex', alignItems: 'center', gap: 8 }}>
               <Target size={18} style={{ color: '#00e0ff' }} /> Top Active Techniques
@@ -123,12 +148,29 @@ export default function TtpMitreTab() {
               )}
             </div>
           </div>
-
+          
+          <div className="card glass-panel" style={{ padding: 20 }}>
+            <h3 style={{ margin: '0 0 16px', fontSize: '1.1rem', color: '#e7eefb', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Shield size={18} style={{ color: '#9f8fff' }} /> TTP by MITRE Tactic
+            </h3>
+            <div style={{ minHeight: 200, width: '100%' }}>
+               <ResponsiveContainer width="100%" height={240}>
+                 <BarChart data={tacticData} layout="vertical" margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
+                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={true} vertical={false} />
+                   <XAxis type="number" stroke="transparent" tick={{ fill: '#64748b', fontSize: 10 }} />
+                   <YAxis dataKey="name" type="category" stroke="transparent" tick={{ fill: '#e7eefb', fontSize: 11 }} width={110} />
+                   <Tooltip 
+                     cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                     contentStyle={{ backgroundColor: 'rgba(10,15,30,0.95)', border: '1px solid rgba(159,143,255,0.4)', color: '#fff', borderRadius: 8 }}
+                   />
+                   <Bar dataKey="count" fill="#9f8fff" radius={[0, 4, 4, 0]} barSize={20} />
+                 </BarChart>
+               </ResponsiveContainer>
+            </div>
+          </div>
         </div>
 
-        {/* Right Side: Live Flow Forensics */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          
           <div className="card glass-panel" style={{ padding: 20, flex: 1, display: 'flex', flexDirection: 'column' }}>
              <h3 style={{ margin: '0 0 16px', fontSize: '1.1rem', color: '#e7eefb', display: 'flex', alignItems: 'center', gap: 8 }}>
                <Search size={18} style={{ color: '#ff9a3d' }} /> Live TTP Forensics
@@ -137,7 +179,7 @@ export default function TtpMitreTab() {
                Recent flows mapping to the evaluated techniques in real-time.
              </p>
              
-             <div style={{ overflowY: 'auto', maxHeight: 500, paddingRight: 8, display: 'flex', flexDirection: 'column', gap: 12 }}>
+             <div style={{ overflowY: 'auto', maxHeight: 350, paddingRight: 8, display: 'flex', flexDirection: 'column', gap: 12 }}>
                {flows.length === 0 ? (
                   <div style={{ color: '#8d97aa', fontSize: '0.9rem', textAlign: 'center', padding: '40px 20px' }}>
                     <ShieldAlert size={32} style={{ opacity: 0.3, marginBottom: 16, margin: '0 auto' }} />
@@ -178,6 +220,35 @@ export default function TtpMitreTab() {
              </div>
           </div>
           
+          <div className="card glass-panel" style={{ padding: 20, flex: 1 }}>
+             <h3 style={{ margin: '0 0 16px', fontSize: '1.1rem', color: '#e7eefb', display: 'flex', alignItems: 'center', gap: 8 }}>
+               <Server size={18} style={{ color: '#54a6ff' }} /> TTP Source IP Correlation
+             </h3>
+             <div style={{ overflowY: 'auto', maxHeight: 300 }}>
+                 <table className="data-table" style={{ width: '100%', fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr>
+                         <th>Technique</th>
+                         <th>Source IP</th>
+                         <th>Flows</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {correlationRows.slice(0, 30).map((row, i) => (
+                         <tr key={i}>
+                            <td style={{ color: '#e7eefb' }}>{row.tid}</td>
+                            <td className="mono" style={{ color: '#00e0ff' }}>{row.ip}</td>
+                            <td style={{ color: '#ff3366' }}>{row.count}</td>
+                         </tr>
+                      ))}
+                    </tbody>
+                 </table>
+                 {correlationRows.length === 0 && (
+                     <div style={{ textAlign: 'center', padding: 20, color: '#8d97aa' }}>No correlations found</div>
+                 )}
+             </div>
+          </div>
+
         </div>
       </div>
     </div>

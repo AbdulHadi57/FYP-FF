@@ -16,8 +16,7 @@ from database import get_db_connection
 from models import (
     Flow, Stats, TimelinePoint, FlowDetail, ModuleStats,
     ForensicsStats, ActionableEvent, ResolutionRequest,
-    IngestRequest, IngestModuleResult, IngestResponse,
-    TTPStatsResponse, APTStatsResponse,
+    TTPStatsResponse
 )
 from control_plane import router as control_plane_router, compat_router as control_plane_compat_router
 from ja4_reputation import ja4_engine
@@ -129,7 +128,6 @@ def health_check():
             "ja4_model": engine.ja4_module.model is not None,
             "ttp_model": engine.ttp_module.is_loaded,
             "traffic_type_model": engine.traffic_type_module.is_loaded,
-            "apt_stix": engine.apt_module.is_loaded,
         }
     }
 
@@ -414,7 +412,7 @@ def get_module_stats(limit: int = 1000):
     conn = get_db_connection()
     try:
         rows = conn.execute("""
-            SELECT id, src_ip, dst_ip, captured_at, verdict, ja4_pred, ttp_predictions, apt_matches, protocol, 
+            SELECT id, src_ip, dst_ip, captured_at, verdict, ja4_pred, ttp_predictions, protocol, 
             json_extract(features_json, '$.ja4') as ja4,
             json_extract(features_json, '$.ja4s') as ja4s,
             json_extract(features_json, '$.ja4h') as ja4h,
@@ -636,7 +634,7 @@ def get_module_stats(limit: int = 1000):
             GROUP BY module_name
         """).fetchall()
 
-        module_activity = {"behavioral": 0, "ja4": 0, "ttp": ttp_total_predictions, "apt": 0}
+        module_activity = {"behavioral": 0, "ja4": 0, "ttp": ttp_total_predictions}
         for row in mod_activity_rows:
             name = row[0]
             count = row[1]
@@ -987,109 +985,105 @@ def get_ttp_stats(limit: int = 500):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# APT Attribution Stats Endpoint
+# ──────────────────────────────────────────────────────────────────────
+# ETA Stats Endpoint
 # ──────────────────────────────────────────────────────────────────────
 
-@app.get("/api/apt-stats", response_model=APTStatsResponse)
-def get_apt_stats(window: int = 3600, top_n: int = 5):
+@app.get("/api/eta/overview")
+def get_eta_overview(limit: int = 1000):
     """
-    Aggregate TTP predictions per actor (src_ip) within the time window
-    and run APT attribution on-demand.
+    Get Encrypted Traffic Analytics overview features instead of APT.
     """
     conn = get_db_connection()
     try:
-        # Calculate cutoff time
-        cutoff = (datetime.datetime.utcnow() - datetime.timedelta(seconds=window)).isoformat()
-
-        # Get all malicious flows with TTP predictions within window
         rows = conn.execute("""
-            SELECT src_ip, ttp_predictions 
+            SELECT id, src_ip, dst_ip, captured_at, verdict, features_json
             FROM flows 
-            WHERE verdict = 'malicious' 
-            AND ttp_predictions IS NOT NULL
-            AND captured_at >= ?
-            ORDER BY captured_at DESC
-        """, (cutoff,)).fetchall()
+            ORDER BY captured_at DESC 
+            LIMIT ?
+        """, (limit,)).fetchall()
 
-        # Aggregate TTPs per actor
-        actor_ttp_map = {}  # {src_ip: {"ttps": set(), "flow_count": int}}
+        ja4_set = set()
+        ja4s_set = set()
+        ja4h_set = set()
+        ja4ssh_set = set()
+        ja4t_set = set()
+        ja4x_set = set()
+        ja4d_set = set()
+        
+        tls_versions = Counter()
+        alpn_protocols = Counter()
+        
+        malicious_hashes = Counter()
+        malicious_ips = {}
+
         for row in rows:
-            src_ip = row["src_ip"]
-            if src_ip not in actor_ttp_map:
-                actor_ttp_map[src_ip] = {"ttps": set(), "flow_count": 0}
-            actor_ttp_map[src_ip]["flow_count"] += 1
             try:
-                ttps = json.loads(row["ttp_predictions"])
-                if isinstance(ttps, list):
-                    for t in ttps:
-                        actor_ttp_map[src_ip]["ttps"].add(t.get("technique_id", ""))
+                feats = json.loads(row["features_json"])
+                
+                def add_hash(key, target_set):
+                    val = feats.get(key)
+                    if val and str(val) not in ("None", ""):
+                        target_set.add(str(val))
+                        
+                add_hash("ja4", ja4_set)
+                add_hash("ja4s", ja4s_set)
+                add_hash("ja4h", ja4h_set)
+                add_hash("ja4ssh", ja4ssh_set)
+                add_hash("ja4t", ja4t_set)
+                add_hash("ja4x", ja4x_set)
+                add_hash("ja4d", ja4d_set)
+                
+                ja4_str = str(feats.get("ja4", ""))
+                if ja4_str.startswith("t13"): tls_versions["TLS 1.3"] += 1
+                elif ja4_str.startswith("t12"): tls_versions["TLS 1.2"] += 1
+                elif ja4_str.startswith("t11"): tls_versions["TLS 1.1"] += 1
+                elif ja4_str.startswith("t10"): tls_versions["TLS 1.0"] += 1
+                elif ja4_str.startswith("q"): tls_versions["QUIC"] += 1
+                elif ja4_str and ja4_str != "None": tls_versions["Other"] += 1
+                
+                alpn = feats.get("ja4_alpn")
+                if alpn:
+                    alpn_protocols[str(alpn)] += 1
+                    
+                if row["verdict"] == "malicious" and ja4_str and ja4_str != "None":
+                    malicious_hashes[ja4_str] += 1
+                    if ja4_str not in malicious_ips:
+                        malicious_ips[ja4_str] = set()
+                    malicious_ips[ja4_str].add(row["src_ip"])
+                
             except:
                 pass
 
-        # Convert sets to lists for the attribution module
-        attribution_input = {}
-        for actor_id, data in actor_ttp_map.items():
-            attribution_input[actor_id] = {
-                "ttps": list(data["ttps"]),
-                "flow_count": data["flow_count"],
-            }
+        total_tls = sum(tls_versions.values())
+        tls_dist = []
+        for v, count in tls_versions.most_common():
+            tls_dist.append({"version": v, "count": count, "pct": round((count/total_tls)*100, 1) if total_tls else 0})
 
-        # Run APT attribution
-        attributions = engine.get_apt_attribution(
-            actor_ttp_map=attribution_input,
-            top_n=top_n,
-            window_seconds=window,
-        )
-
-        # Build response
-        apt_group_counter = Counter()
-        apt_group_scores = {}
-        actor_profiles = []
-
-        for attr in attributions:
-            top_match_name = attr.top_matches[0].apt_name if attr.top_matches else "None"
-            top_match_score = attr.top_matches[0].combined_score if attr.top_matches else 0.0
-
-            actor_profiles.append({
-                "actor_id": attr.actor_id,
-                "ttp_count": len(attr.ttps_observed),
-                "flow_count": attr.flow_count,
-                "top_match": top_match_name,
-                "top_score": round(top_match_score, 4),
-                "ttps": attr.ttps_observed[:10],  # Limit for UI
-                "top_matches": [
-                    {
-                        "apt_name": m.apt_name,
-                        "combined_score": round(m.combined_score, 4)
-                    } for m in attr.top_matches
-                ]
+        mal_hashes = []
+        for h, count in malicious_hashes.most_common(5):
+            mal_hashes.append({
+                "ja4": h,
+                "flow_count": count,
+                "malicious_pct": 100.0,
+                "source_ips": list(malicious_ips[h])[:3]
             })
 
-            for m in attr.top_matches:
-                apt_group_counter[m.apt_name] += 1
-                if m.apt_name not in apt_group_scores:
-                    apt_group_scores[m.apt_name] = []
-                apt_group_scores[m.apt_name].append(m.combined_score)
-
-        top_apt_groups = []
-        for name, count in apt_group_counter.most_common(15):
-            scores = apt_group_scores[name]
-            top_apt_groups.append({
-                "apt_name": name,
-                "match_count": count,
-                "avg_score": round(sum(scores) / len(scores), 4),
-                "max_score": round(max(scores), 4),
-            })
-
-        stix_stats = engine.apt_module.get_stix_stats()
-
-        return APTStatsResponse(
-            actor_count=len(actor_profiles),
-            top_apt_groups=top_apt_groups,
-            actor_profiles=actor_profiles,
-            stix_stats=stix_stats,
-            window_seconds=window,
-        )
+        return {
+            "fingerprint_diversity": {
+                "ja4": len(ja4_set),
+                "ja4s": len(ja4s_set),
+                "ja4h": len(ja4h_set),
+                "ja4ssh": len(ja4ssh_set),
+                "ja4t": len(ja4t_set),
+                "ja4x": len(ja4x_set),
+                "ja4d": len(ja4d_set),
+                "total_unique": len(ja4_set) + len(ja4s_set) + len(ja4h_set) + len(ja4ssh_set) + len(ja4t_set) + len(ja4x_set) + len(ja4d_set)
+            },
+            "tls_distribution": tls_dist,
+            "top_malicious_fingerprints": mal_hashes,
+            "alpn_distribution": [{"alpn": k, "count": v} for k, v in alpn_protocols.most_common(5)]
+        }
     finally:
         conn.close()
 
@@ -1334,12 +1328,13 @@ def get_events(limit: int = 50, status: str = "all", module: Optional[str] = Non
         # System logs
         if status == "system" or status == "all":
             base_time = datetime.datetime.now()
+            msg = f"Detection pipeline operational. JA4: {'Active' if engine.ja4_module.model else 'No Model'}, TTP: {'Active' if engine.ttp_module.is_loaded else 'No Model'}."
             logs = [
                 {
                     "id": "sys_log_001",
                     "offset": 0,
                     "title": "Pipeline Status",
-                    "msg": f"Detection pipeline operational. JA4: {'Active' if engine.ja4_module.model else 'No Model'}, TTP: {'Active' if engine.ttp_module.is_loaded else 'No Model'}, APT: {'Active' if engine.apt_module.is_loaded else 'No STIX'}.",
+                    "msg": msg,
                     "severity": "info"
                 },
                 {

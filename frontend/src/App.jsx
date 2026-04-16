@@ -17,7 +17,6 @@ import {
 } from 'lucide-react';
 
 import ThreatOverview from './tabs/ThreatOverview';
-import ThreatIntelTab from './tabs/ThreatIntelTab';
 import InvestigatorTab from './tabs/InvestigatorTab';
 import ControlPlaneTab from './tabs/ControlPlaneTab';
 import AuditTrailTab from './tabs/AuditTrailTab';
@@ -38,7 +37,6 @@ const TABS = [
   { id: 'behavioral', label: 'Behavioral Engines', icon: Activity },
   { id: 'anomaly', label: 'Anomaly Canvas', icon: Siren },
   { id: 'traffic-type', label: 'Traffic Types', icon: Network },
-  { id: 'intel', label: 'Threat Intel', icon: Crosshair },
   { id: 'ttp', label: 'MITRE ATT&CK', icon: Users }, // Using Users icon since lucide-react doesn't have Target imported easily without another replace
   { id: 'investigator', label: 'Investigator', icon: Database },
   { id: 'control', label: 'Active Defense', icon: SlidersHorizontal },
@@ -192,7 +190,6 @@ export default function App() {
             autoRefreshSeconds={refreshSeconds}
           />
         )}
-        {activeTab === 'intel'       && <ThreatIntelTab {...sharedProps} />}
         {activeTab === 'ttp'         && <TtpMitreTab />}
         {activeTab === 'investigator'  && (
           <InvestigatorTab

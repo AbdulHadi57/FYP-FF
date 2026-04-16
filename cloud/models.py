@@ -15,7 +15,6 @@ class Flow(BaseModel):
     verdict: str
     ja4_pred: Optional[str] = "none"
     ttp_predictions: Optional[str] = None
-    apt_matches: Optional[str] = None
     confidence: float
     severity: float
     traffic_type: Optional[str] = "other"
@@ -66,11 +65,6 @@ class ModuleStats(BaseModel):
     ttp_total_predictions: int = 0
     ttp_top_techniques: List[Dict[str, Any]] = Field(default_factory=list)
     ttp_recent_flows: List[Dict[str, Any]] = Field(default_factory=list)
-
-    apt_actor_count: int = 0
-    apt_top_groups: List[Dict[str, Any]] = Field(default_factory=list)
-    apt_actor_profiles: List[Dict[str, Any]] = Field(default_factory=list)
-    apt_stix_stats: Dict[str, Any] = Field(default_factory=dict)
 
     module_activity: Dict[str, int] = Field(default_factory=dict)
     threat_status_distribution: Dict[str, int] = Field(default_factory=dict)
@@ -140,14 +134,6 @@ class TTPStatsResponse(BaseModel):
     technique_distribution: List[Dict[str, Any]]
     recent_ttp_flows: List[Dict[str, Any]]
     model_loaded: bool
-
-
-class APTStatsResponse(BaseModel):
-    actor_count: int
-    top_apt_groups: List[Dict[str, Any]]
-    actor_profiles: List[Dict[str, Any]]
-    stix_stats: Dict[str, Any]
-    window_seconds: int
 
 
 class NodeRegistration(BaseModel):

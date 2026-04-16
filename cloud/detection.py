@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from ttp_module import TTPModule, TTPResult
-from apt_attribution import APTAttributionModule, ActorAttribution
 
 logger = logging.getLogger("AegisNet.Detection")
 
@@ -122,7 +121,7 @@ class BehavioralBaselineModule(DetectionModule):
     def _load_bundle(self) -> None:
         try:
             base_path = os.path.dirname(os.path.abspath(__file__))
-            bundle_path = os.path.join(base_path, self.model_dir, "network_baseline_bundle.pkl")
+            bundle_path = os.path.join(base_path, self.model_dir, "network_autoencoder_bundle.pkl")
             if not os.path.exists(bundle_path):
                 logger.warning("BehavioralBaselineModule: bundle not found at %s", bundle_path)
                 return
@@ -130,27 +129,26 @@ class BehavioralBaselineModule(DetectionModule):
             self.bundle = joblib.load(bundle_path)
             self.preprocessor = self.bundle.get("preprocessor")
             self.scaler = self.bundle.get("scaler")
-            self.iforest_model = self.bundle.get("iforest_model")
-            self.cluster_model = self.bundle.get("cluster_model")
+            self.autoencoder_model = self.bundle.get("autoencoder_model")
             self.feature_columns = list(self.bundle.get("feature_columns", []))
             self.drop_columns = list(
                 self.bundle.get("applied_drop_columns", self.bundle.get("manual_drop_columns", []))
             )
-            self.score_method = str(self.bundle.get("score_method", "iforest"))
-            self.selected_threshold = float(self.bundle.get("selected_threshold", 0.5))
-            self.score_normalization = dict(self.bundle.get("score_normalization", {}))
-            self.iforest_weight = float(self.bundle.get("iforest_weight", 0.7))
-            self.cluster_weight = float(self.bundle.get("cluster_weight", 0.3))
+            self.score_method = str(self.bundle.get("score_method", "autoencoder"))
+            self.selected_threshold = float(self.bundle.get("selected_threshold", 0.0006))
+            
+            self.error_min = float(self.bundle.get("reconstruction_error_train_min", 0.0))
+            self.error_max = float(self.bundle.get("reconstruction_error_train_max", 1.0))
 
             self.is_loaded = all(
                 [
                     self.preprocessor is not None,
                     self.scaler is not None,
-                    self.iforest_model is not None,
+                    self.autoencoder_model is not None,
                     len(self.feature_columns) > 0,
                 ]
             )
-            logger.info("BehavioralBaselineModule: loaded=%s", self.is_loaded)
+            logger.info("BehavioralBaselineModule: Autoencoder loaded=%s", self.is_loaded)
         except Exception as exc:
             logger.error("BehavioralBaselineModule: failed loading bundle: %s", exc)
             self.is_loaded = False
@@ -183,35 +181,18 @@ class BehavioralBaselineModule(DetectionModule):
         x_transformed = self.preprocessor.transform(x_df)
         x_scaled = self.scaler.transform(x_transformed)
 
-        iforest_score = -self.iforest_model.score_samples(x_scaled)
-        iforest_score = np.asarray(iforest_score).ravel()
+        x_reconstructed = self.autoencoder_model.predict(x_scaled)
+        mse_score = np.mean((x_scaled - x_reconstructed) ** 2, axis=1)
 
-        if self.score_method == "hybrid" and self.cluster_model is not None:
-            cluster_score = np.asarray(self.cluster_model.transform(x_scaled).min(axis=1)).ravel()
+        # Normalize score between min/max for 0.0 to 1.0 confidence map
+        mse = float(mse_score[0])
+        denom = self.error_max - self.error_min
+        if denom <= 1e-12:
+            confidence = 0.0
+        else:
+            confidence = float(np.clip((mse - self.error_min) / denom, 0.0, 1.0))
 
-            if_min = float(self.score_normalization.get("iforest_min", np.min(iforest_score)))
-            if_max = float(self.score_normalization.get("iforest_max", np.max(iforest_score)))
-            cl_min = float(self.score_normalization.get("cluster_min", np.min(cluster_score)))
-            cl_max = float(self.score_normalization.get("cluster_max", np.max(cluster_score)))
-
-            if_norm = self._normalize(iforest_score, if_min, if_max)
-            cl_norm = self._normalize(cluster_score, cl_min, cl_max)
-
-            weight_sum = self.iforest_weight + self.cluster_weight
-            if weight_sum <= 0:
-                weight_sum = 1.0
-
-            final_score = (
-                self.iforest_weight * if_norm + self.cluster_weight * cl_norm
-            ) / weight_sum
-            confidence = float(np.clip(final_score[0], 0.0, 1.0))
-            return float(final_score[0]), confidence
-
-        if_min = float(self.score_normalization.get("iforest_min", np.min(iforest_score)))
-        if_max = float(self.score_normalization.get("iforest_max", np.max(iforest_score)))
-        if_norm = self._normalize(iforest_score, if_min, if_max)
-        confidence = float(np.clip(if_norm[0], 0.0, 1.0))
-        return float(iforest_score[0]), confidence
+        return mse, confidence
 
     def predict(self, record: FeatureRecord) -> DetectionResult:
         if not self.is_loaded:
@@ -225,12 +206,16 @@ class BehavioralBaselineModule(DetectionModule):
             )
 
         try:
-            score, confidence = self._compute_scores(record.payload)
+            score, raw_confidence = self._compute_scores(record.payload)
             is_anomaly = score >= self.selected_threshold
+            
+            # Scale confidence: if it is securely benign (score is very low), the confidence of it being benign should be high.
+            final_confidence = float(raw_confidence) if is_anomaly else float(max(0.0, 1.0 - raw_confidence))
+
             return DetectionResult(
                 module=self.name,
                 label="malicious" if is_anomaly else "benign",
-                confidence=confidence,
+                confidence=final_confidence,
                 rationale=(
                     f"Behavioral anomaly score {score:.4f} "
                     f"{'above' if is_anomaly else 'below'} threshold {self.selected_threshold:.4f}"
@@ -307,13 +292,15 @@ class Ja4Module(DetectionModule):
 
                 if isinstance(prediction, str):
                     label = prediction.lower()
+                    final_confidence = float(prob)
                 else:
                     label = "malicious" if prob >= 0.8 else "benign"
+                    final_confidence = float(prob) if label == "malicious" else max(0.0, 1.0 - float(prob))
 
                 return DetectionResult(
                     module=self.name,
                     label=label,
-                    confidence=float(prob),
+                    confidence=final_confidence,
                     rationale=f"AI Model Prediction (Score: {prob:.3f})",
                     score=float(prob),
                     metadata={"ai_model": True}
@@ -370,28 +357,10 @@ class TrafficTypeModule(DetectionModule):
 
         candidates.extend(
             [
-                os.path.join(base_path, "ml_models", "traffic_type_model.joblib"),
-                os.path.join(base_path, "ml_models", "random_forest_traffic_type.joblib"),
-                os.path.join(
-                    base_path,
-                    "..",
-                    "..",
-                    "traffic type detection model",
-                    "traffic type detection model",
-                    "models",
-                    "run_20260412_174423",
-                    "random_forest.joblib",
-                ),
-                os.path.join(
-                    base_path,
-                    "..",
-                    "..",
-                    "traffic type detection model",
-                    "traffic type detection model",
-                    "models",
-                    "run_20260412_174423",
-                    "extra_trees.joblib",
-                ),
+                os.path.join(base_path, "ml_models", "random_forest.joblib"),
+                os.path.join(base_path, "ml_models", "extra_trees.joblib"),
+                os.path.join(base_path, "ml_models", "hist_gradient_boosting.joblib"),
+                os.path.join(base_path, "ml_models", "logistic_regression.joblib"),
             ]
         )
         return candidates
@@ -599,7 +568,6 @@ class DetectionEngine:
       Stage 0: Baseline Anomaly Detection (placeholder — coming soon)
       Stage 1: JA4 + Flow Stats model → malicious/benign verdict
       Stage 2: TTP Classification → MITRE ATT&CK techniques (runs on malicious flows)
-      Stage 3: APT Attribution → APT group similarity (aggregated per-actor, on-demand)
     """
 
     def __init__(self, model_dir: str = "ml_models"):
@@ -615,27 +583,28 @@ class DetectionEngine:
         # Stage 1.5: Traffic type classification
         self.traffic_type_module = TrafficTypeModule()
 
-        # Stage 3: APT attribution (initialized lazily, runs on-demand)
-        self.apt_module = APTAttributionModule()
-
         logger.info(
-            "DetectionEngine initialized — Behavioral: %s, JA4: %s, TTP: %s, TrafficType: %s, APT: %s",
+            "DetectionEngine initialized — Behavioral: %s, JA4: %s, TTP: %s, TrafficType: %s",
             "loaded" if self.behavior_module.is_loaded else "no-model",
             "loaded" if self.ja4_module.model else "no-model",
             "loaded" if self.ttp_module.is_loaded else "no-model",
             "loaded" if self.traffic_type_module.is_loaded else "heuristic-only",
-            "loaded" if self.apt_module.is_loaded else "no-stix",
         )
 
     def _aggregate(self, results: List[DetectionResult]) -> AggregateDecision:
         """Aggregate module results into a single verdict."""
-        triggered = [res.module for res in results if res.label == "malicious"]
+        # Exclude ETA/traffic-type classification from malicious threat scaling
+        threat_results = [res for res in results if res.module != "traffic-type"]
+        
+        triggered = [res.module for res in threat_results if res.label == "malicious"]
         verdict = "malicious" if triggered else "benign"
         if triggered:
-            confidence = max(res.confidence for res in results if res.label == "malicious")
+            confidence = max(res.confidence for res in threat_results if res.label == "malicious")
         else:
-            confidence = min(res.confidence for res in results) if results else 0.0
-        severity = len(triggered) / len(results) if results else 0.0
+            confidence = min(res.confidence for res in threat_results) if threat_results else 0.0
+        
+        severity = len(triggered) / len(threat_results) if threat_results else 0.0
+        
         return AggregateDecision(
             verdict=verdict,
             confidence=round(confidence, 3),
@@ -671,26 +640,4 @@ class DetectionEngine:
 
         return record, aggregate, module_results, ttp_result
 
-    def get_apt_attribution(
-        self,
-        actor_ttp_map: Dict[str, Dict[str, Any]],
-        top_n: int = 5,
-        window_seconds: int = 3600,
-    ) -> List[ActorAttribution]:
-        """
-        Run Stage 3 APT attribution for multiple actors.
 
-        Parameters
-        ----------
-        actor_ttp_map : dict
-            {actor_id: {"ttps": [str], "flow_count": int}}
-        top_n : int
-            Number of top APT matches per actor.
-        window_seconds : int
-            Time window used for aggregation.
-
-        Returns
-        -------
-        List[ActorAttribution]
-        """
-        return self.apt_module.attribute_actors(actor_ttp_map, top_n=top_n, window_seconds=window_seconds)

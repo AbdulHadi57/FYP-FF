@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, Radio, Fingerprint, Radar, AlertCircle, Network, Server, Globe } from 'lucide-react';
+import { Activity, Radio, Fingerprint, Radar, AlertCircle, Network, Server, Globe, MapPin, AlertTriangle, LocateFixed } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, 
-  ScatterChart, Scatter, ZAxis, Cell, Label
+  ScatterChart, Scatter, ZAxis, Cell, Label,
+  RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts';
 import axios from 'axios';
 
@@ -23,22 +24,28 @@ export default function BehavioralAnalyticsTab() {
   const [maliciousFlows, setMaliciousFlows] = useState([]);
   const [suspectLimit, setSuspectLimit] = useState(25);
   const [loading, setLoading] = useState(true);
+  const [c2Intel, setC2Intel] = useState([]);
+  const [loadingC2, setLoadingC2] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     let active = true;
     const fetchAnalytics = async () => {
       try {
-        const [statsRes, timeRes, modRes, flowsRes] = await Promise.all([
+        const [statsRes, timeRes, modRes, flowsRes, c2Res] = await Promise.all([
            axios.get('http://localhost:8000/api/stats'),
            axios.get('http://localhost:8000/api/timeline'),
            axios.get('http://localhost:8000/api/modules'),
-           axios.get('http://localhost:8000/api/flows?limit=300')
+           axios.get('http://localhost:8000/api/flows?limit=300'),
+           axios.get('http://localhost:8000/api/c2-intel')
         ]);
         if (!active) return;
         
         setStats(statsRes.data);
         setModules(modRes.data);
         setMaliciousFlows((flowsRes.data || []).filter(f => f.verdict === 'malicious' && String(f.dst_port) !== '8000'));
+        setC2Intel(c2Res.data);
+        setLoadingC2(false);
         
         // Generate an offset Timeline for "Baseline vs JA4 Anomaly" simulation based on real timeline
         const simulatedBaseline = (timeRes.data || []).map(t => ({
@@ -48,10 +55,15 @@ export default function BehavioralAnalyticsTab() {
         }));
         
         setTimeline(simulatedBaseline);
+        setError(null);
         setLoading(false);
       } catch (e) {
         console.error('Failed to fetch behavioral data', e);
-        if (active) setLoading(false);
+        if (active) {
+            if (!modules) setError(true);
+            setLoading(false); 
+            setLoadingC2(false); 
+        }
       }
     };
     fetchAnalytics();
@@ -59,7 +71,17 @@ export default function BehavioralAnalyticsTab() {
     return () => { active = false; clearInterval(interval); }
   }, []);
 
-  if (loading || !modules || !stats) return <div className="loading-spinner"><div className="spinner" /></div>;
+  if (loading && !modules) return <div className="loading-spinner"><div className="spinner" /></div>;
+
+  if (error && !modules) {
+    return (
+      <div style={{ padding: '40px', textAlign: 'center', color: '#ff4b5c', background: 'rgba(255, 75, 92, 0.05)', borderRadius: '8px', border: '1px solid rgba(255, 75, 92, 0.2)', marginTop: '20px' }}>
+        <AlertTriangle size={48} style={{ margin: '0 auto 16px' }} />
+        <h2 style={{ margin: '0 0 10px' }}>AI Engine Unreachable</h2>
+        <p style={{ color: '#8d97aa' }}>Unable to establish connection with the AegisNet AI backend. Please ensure the machine learning pipeline is running.</p>
+      </div>
+    );
+  }
 
   // Prepare Scatter Data (Frequency vs Threat Level)
   const scatterData = [];
@@ -248,6 +270,82 @@ export default function BehavioralAnalyticsTab() {
                </Scatter>
              </ScatterChart>
            </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* C2 Infrastructure Intelligence With Radar */}
+      <div className="card glass-panel" style={{ padding: 20 }}>
+        <h3 style={{ margin: '0 0 16px', fontSize: '1.1rem', color: '#ff3366', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Globe size={20} style={{ color: '#ff3366' }} />
+          Rogue C2 Infrastructure (Geo/ASN) & Topography Match
+        </h3>
+        <p style={{ fontSize: '0.8rem', color: '#8d97aa', marginBottom: 20 }}>Live interception mapping of active TLS flows resolving to high-risk Bulletproof ASN hubs.</p>
+
+        <div className="grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, alignItems: 'center' }}>
+          <div style={{ maxHeight: 260, overflowY: 'auto', overflowX: 'auto', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 8 }}>
+            <table className="data-table" style={{ margin: 0 }}>
+              <thead style={{ background: 'rgba(5, 8, 15, 0.95)', position: 'sticky', top: 0, zIndex: 1, boxShadow: '0 2px 5px rgba(0,0,0,0.5)' }}>
+                <tr>
+                  <th style={{ padding: '8px 10px', color: '#8d97aa' }}>Destination</th>
+                  <th style={{ padding: '8px 10px', color: '#8d97aa' }}>Autonomous System</th>
+                  <th style={{ padding: '8px 10px', color: '#8d97aa' }}>Geo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loadingC2 && (
+                  <tr><td colSpan="3" style={{ textAlign: 'center', padding: '20px', color: '#8d97aa' }}><Activity size={16} className="spin" style={{ display: 'inline', marginRight: 8 }}/> Running live GeoIP lookup...</td></tr>
+                )}
+                {!loadingC2 && c2Intel.length === 0 && (
+                  <tr><td colSpan="3" style={{ textAlign: 'center', padding: '20px', color: '#8d97aa' }}>No malicious external destinations active.</td></tr>
+                )}
+                {!loadingC2 && c2Intel.map((c2, idx) => (
+                  <tr key={idx} style={{ borderBottom: '1px solid rgba(255,51,102,0.1)' }}>
+                    <td className="mono" style={{ color: '#ff3366', padding: '10px' }}>
+                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <AlertTriangle size={14} style={{ color: '#ff3366' }} />
+                          {c2.ip}
+                       </div>
+                    </td>
+                    <td style={{ color: '#e7eefb', fontSize: '0.85rem', padding: '10px' }}>
+                       {c2.asn}<br/>
+                       <span style={{ color: '#8d97aa', fontSize: '0.75rem' }}>{c2.classification} &bull; {c2.flows} TLS Flows</span>
+                    </td>
+                    <td style={{ padding: '10px' }}>
+                       <span className="badge badge-outline" style={{ borderColor: 'rgba(255,51,102,0.2)', color: '#c3cedf' }}>
+                         <MapPin size={10} style={{ marginRight: 4 }}/>
+                         {c2.geo}
+                       </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: 12, border: '1px solid rgba(255,51,102,0.1)', height: 260, position: 'relative' }}>
+             {c2Intel.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                 <RadarChart cx="50%" cy="50%" outerRadius="70%" data={c2Intel.map(t => ({ region: t.geo.split('(')[0].trim(), risk: Math.min((t.flows / 50) * 100, 100), volume: t.flows }))}>
+                   <PolarGrid stroke="rgba(255,51,102,0.2)" />
+                   <PolarAngleAxis dataKey="region" tick={{ fill: '#8d97aa', fontSize: 11 }} />
+                   <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                   <Tooltip 
+                     contentStyle={{ background: 'rgba(5,8,15,0.95)', border: '1px solid rgba(255,51,102,0.4)', borderRadius: 8 }}
+                     itemStyle={{ color: '#ff3366', fontSize: '0.85rem' }}
+                   />
+                   <Radar name="Threat Density Risk" dataKey="risk" stroke="#ff3366" fill="#ff3366" fillOpacity={0.4} />
+                 </RadarChart>
+              </ResponsiveContainer>
+             ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#8d97aa' }}>
+                <Globe size={28} style={{ opacity: 0.3, marginBottom: 8 }} />
+                <span style={{ fontSize: '0.85rem' }}>Awaiting geo-threat telemetry...</span>
+              </div>
+             )}
+              <div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 6, color: '#ff3366', fontSize: '0.75rem', fontWeight: 600 }}>
+                <LocateFixed size={12} className="spin" style={{ color: '#ff3366' }} /> GEO-RADAR {c2Intel.length > 0 ? 'ACTIVE' : 'STANDBY'}
+              </div>
+           </div>
         </div>
       </div>
 

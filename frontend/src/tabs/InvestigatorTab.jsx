@@ -42,7 +42,6 @@ export default function InvestigatorTab() {
       const flowStr = JSON.stringify(flow).toLowerCase();
       let feats = {};
       try { feats = JSON.parse(flow.features_json || '{}'); } catch(e) {};
-      const apts = flow.apt_matches ? JSON.parse(flow.apt_matches) : [];
 
       const conditions = omnibarQuery.split(/\s+AND\s+/i);
       
@@ -59,7 +58,6 @@ export default function InvestigatorTab() {
 
           if (targetKey === 'ja4') actualValue = feats.ja4 || '';
           else if (targetKey === 'verdict') actualValue = flow.verdict || '';
-          else if (targetKey === 'apt') actualValue = apts.length > 0 ? apts[0].apt_name : '';
           else if (targetKey === 'ttp') actualValue = flow.ttp_predictions || '';
           else if (targetKey === 'ip') actualValue = flow.src_ip + ' ' + flow.dst_ip;
           else if (targetKey === 'sni') actualValue = flow.sni || '';
@@ -98,7 +96,7 @@ export default function InvestigatorTab() {
                type="text"
                value={omnibarQuery}
                onChange={(e) => setOmnibarQuery(e.target.value)}
-               placeholder='e.g., ja4="abcdef" AND apt="Lazarus" AND NOT ip="192.168.1.1"'
+               placeholder='e.g., ja4="abcdef" AND ttp="T1059" AND NOT ip="192.168.1.1"'
                style={{ 
                  width: '100%', background: 'transparent', border: 'none', color: '#e7eefb', fontSize: '1.1rem',
                  padding: '12px 0', outline: 'none', fontFamily: 'monospace' 
@@ -110,7 +108,7 @@ export default function InvestigatorTab() {
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 12, fontSize: '0.8rem', color: '#8d97aa', alignItems: 'center' }}>
             <HelpCircle size={14}/>
-            <span><strong>Available Keys:</strong> <code style={{ color: '#00e0ff' }}>ja4=</code>, <code style={{ color: '#00e0ff' }}>verdict=</code>, <code style={{ color: '#00e0ff' }}>ip=</code>, <code style={{ color: '#00e0ff' }}>sni=</code>, <code style={{ color: '#00e0ff' }}>ttp=</code>, <code style={{ color: '#00e0ff' }}>apt=</code></span>
+            <span><strong>Available Keys:</strong> <code style={{ color: '#00e0ff' }}>ja4=</code>, <code style={{ color: '#00e0ff' }}>verdict=</code>, <code style={{ color: '#00e0ff' }}>ip=</code>, <code style={{ color: '#00e0ff' }}>sni=</code>, <code style={{ color: '#00e0ff' }}>ttp=</code></span>
             <span style={{ margin: '0 8px', color: '#555' }}>|</span>
             <span><strong>Operators:</strong> <code style={{ color: '#ff3366' }}>AND</code>, <code style={{ color: '#ff3366' }}>NOT</code></span>
           </div>
@@ -136,7 +134,6 @@ export default function InvestigatorTab() {
                 const isExpanded = expandedFlow === flow.id;
                 const features = JSON.parse(flow.features_json || '{}');
                 const ttps = flow.ttp_predictions ? JSON.parse(flow.ttp_predictions) : [];
-                const apts = flow.apt_matches ? JSON.parse(flow.apt_matches) : [];
                 
                 return (
                   <React.Fragment key={flow.id}>
@@ -220,21 +217,15 @@ export default function InvestigatorTab() {
 
                               <div style={{ background: 'rgba(0,0,0,0.4)', borderRadius: 8, padding: 16, border: '1px solid rgba(159,143,255,0.15)' }}>
                                 <h4 style={{ margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: 6, color: '#9f8fff' }}>
-                                  <Database size={14} /> Associated Attacker Profile (APT)
+                                  <Database size={14} /> Encrypted Session Profile
                                 </h4>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                  {apts.length > 0 ? (
-                                    <>
-                                      <div><span style={{ color: '#8d97aa', fontSize: '0.75rem' }}>Predicted Actor Match:</span><br/>
-                                        <span className="badge badge-purple" style={{ marginTop: 4, display: 'inline-block' }}>{apts[0].apt_name}</span>
-                                      </div>
-                                      <div><span style={{ color: '#8d97aa', fontSize: '0.75rem' }}>STIX Profile Intersection Match:</span><br/>
-                                        <span className="mono" style={{ color: '#e7eefb' }}>{Math.round(apts[0].combined_score * 100)}% STIX Overlay</span>
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <div style={{ color: '#666', fontSize: '0.8rem', fontStyle: 'italic', marginTop: 10 }}>No high-confidence APT attributions associated with this localized flow event. Requires broader window aggregation.</div>
-                                  )}
+                                  <div><span style={{ color: '#8d97aa', fontSize: '0.75rem' }}>TLS Version / Cipher suite:</span><br/>
+                                    <span className="badge badge-purple" style={{ marginTop: 4, display: 'inline-block' }}>{features.tls_version || 'Unknown'} / {features.cipher_suite || 'Unknown'}</span>
+                                  </div>
+                                  <div><span style={{ color: '#8d97aa', fontSize: '0.75rem' }}>Session Entropy & IAT:</span><br/>
+                                    <span className="mono" style={{ color: '#e7eefb' }}>{features.entropy ? parseFloat(features.entropy).toFixed(2) : 'N/A'} bit/byte | {features.mean_iat ? parseFloat(features.mean_iat).toFixed(2) : 'N/A'} ms</span>
+                                  </div>
                                 </div>
                               </div>
                               
