@@ -16,7 +16,7 @@ from database import get_db_connection
 from models import (
     Flow, Stats, TimelinePoint, FlowDetail, ModuleStats,
     ForensicsStats, ActionableEvent, ResolutionRequest,
-    TTPStatsResponse
+    TTPStatsResponse, IngestRequest, IngestResponse
 )
 from control_plane import router as control_plane_router, compat_router as control_plane_compat_router
 from ja4_reputation import ja4_engine
