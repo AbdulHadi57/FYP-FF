@@ -323,25 +323,38 @@ export default function BehavioralAnalyticsTab() {
           </div>
 
           <div style={{ background: 'rgba(0,0,0,0.3)', borderRadius: 12, border: '1px solid rgba(255,51,102,0.1)', height: 260, position: 'relative' }}>
-             {c2Intel.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                 <RadarChart cx="50%" cy="50%" outerRadius="70%" data={c2Intel.map(t => ({ region: t.geo.split('(')[0].trim(), risk: Math.min((t.flows / 50) * 100, 100), volume: t.flows }))}>
-                   <PolarGrid stroke="rgba(255,51,102,0.2)" />
-                   <PolarAngleAxis dataKey="region" tick={{ fill: '#8d97aa', fontSize: 11 }} />
-                   <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                   <Tooltip 
-                     contentStyle={{ background: 'rgba(5,8,15,0.95)', border: '1px solid rgba(255,51,102,0.4)', borderRadius: 8 }}
-                     itemStyle={{ color: '#ff3366', fontSize: '0.85rem' }}
-                   />
-                   <Radar name="Threat Density Risk" dataKey="risk" stroke="#ff3366" fill="#ff3366" fillOpacity={0.4} />
-                 </RadarChart>
-              </ResponsiveContainer>
-             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#8d97aa' }}>
-                <Globe size={28} style={{ opacity: 0.3, marginBottom: 8 }} />
-                <span style={{ fontSize: '0.85rem' }}>Awaiting geo-threat telemetry...</span>
-              </div>
-             )}
+             {(() => {
+                if (c2Intel.length === 0) {
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#8d97aa' }}>
+                      <Globe size={28} style={{ opacity: 0.3, marginBottom: 8 }} />
+                      <span style={{ fontSize: '0.85rem' }}>Awaiting geo-threat telemetry...</span>
+                    </div>
+                  );
+                }
+                const radarData = c2Intel.map(t => ({ 
+                   region: t.geo ? t.geo.split('(')[0].trim() : 'Unknown', 
+                   risk: Math.min((t.flows / 50) * 100, 100), 
+                   volume: t.flows 
+                }));
+                while (radarData.length > 0 && radarData.length < 3) {
+                   radarData.push({ region: `N/A ${radarData.length}`, risk: 0, volume: 0 });
+                }
+                return (
+                  <ResponsiveContainer width="100%" height="100%">
+                     <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
+                       <PolarGrid stroke="rgba(255,51,102,0.2)" />
+                       <PolarAngleAxis dataKey="region" tick={{ fill: '#8d97aa', fontSize: 11 }} />
+                       <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                       <Tooltip 
+                         contentStyle={{ background: 'rgba(5,8,15,0.95)', border: '1px solid rgba(255,51,102,0.4)', borderRadius: 8 }}
+                         itemStyle={{ color: '#ff3366', fontSize: '0.85rem' }}
+                       />
+                       <Radar name="Threat Density Risk" dataKey="risk" stroke="#ff3366" fill="#ff3366" fillOpacity={0.4} />
+                     </RadarChart>
+                  </ResponsiveContainer>
+                );
+             })()}
               <div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 6, color: '#ff3366', fontSize: '0.75rem', fontWeight: 600 }}>
                 <LocateFixed size={12} className="spin" style={{ color: '#ff3366' }} /> GEO-RADAR {c2Intel.length > 0 ? 'ACTIVE' : 'STANDBY'}
               </div>
