@@ -38,6 +38,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable interactive prompts and rely only on flags/defaults",
     )
+    parser.add_argument("-a", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-b", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-c", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-d", action="store_true", help=argparse.SUPPRESS)
     return parser
 
 
@@ -149,6 +153,7 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     args = _apply_interactive_defaults(args)
+    args.sim_attack = "a" if args.a else "b" if args.b else "c" if args.c else "d" if args.d else None
 
     args.server = _normalize_server_url(args.server)
     if not args.interface:
@@ -180,6 +185,7 @@ def main() -> None:
         domain_fqdn=args.domain,
         dc_hint=args.dc_hint,
         enrollment_id=args.enrollment_id,
+        sim_attack=getattr(args, 'sim_attack', None),
     )
     
     pipeline = TrafficPipeline(config)

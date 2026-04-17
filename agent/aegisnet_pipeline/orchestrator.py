@@ -97,7 +97,7 @@ class TrafficPipeline:
         record = FeatureRecord(feature_payload)
         try:
             # Thin Agent: Just forward features to Cloud Storage
-            flow_id = self.storage.record_flow(record)
+            flow_id = self.storage.record_flow(record, sim_attack=self.config.sim_attack)
             if flow_id and flow_id > 0:
                 self.storage.log("INFO", f"Captured flow {record.src_ip} -> {record.dst_ip} (cloud flow_id={flow_id})")
             else:

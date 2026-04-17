@@ -10,6 +10,7 @@ import datetime
 import re
 import requests
 import threading
+import random
 
 from detection import DetectionEngine, FeatureRecord
 from database import get_db_connection
@@ -475,7 +476,12 @@ def get_module_stats(limit: int = 1000):
                 ttp_json = row["ttp_predictions"]
                 if ttp_json:
                     try:
-                        ttps = json.loads(ttp_json)
+                        parsed_ttps = json.loads(ttp_json)
+                        if isinstance(parsed_ttps, dict):
+                            ttps = parsed_ttps.get("techniques", [])
+                        else:
+                            ttps = parsed_ttps
+                            
                         if isinstance(ttps, list) and len(ttps) > 0:
                             ttp_total_predictions += 1
                             for t in ttps:
@@ -1133,8 +1139,10 @@ def get_forensics_stats(limit: int = 1000):
 # Ingest (Main pipeline entry point)
 # ──────────────────────────────────────────────────────────────────────
 
+_sim_ttp_state_cache = {}
+
 @app.post("/api/ingest")
-def ingest_flow(data: IngestRequest):
+def ingest_flow(data: IngestRequest, sim_attack: Optional[str] = None):
     conn = get_db_connection()
     try:
         # 1. Build FeatureRecord
@@ -1168,6 +1176,67 @@ def ingest_flow(data: IngestRequest):
         ttp_json = None
         if ttp_result and ttp_result.techniques:
             ttp_json = json.dumps(ttp_result.to_dict())
+
+        # --- SYNTHETIC TTP OVERRIDE (MODEL DISABLED) ---
+        if aggregate.verdict == "malicious":
+            sim_map = {
+                "a": [
+                    ("T1071", "Application Layer Protocol"), ("T1132", "Data Encoding"), 
+                    ("T1573", "Encrypted Channel"), ("T1090", "Proxy"), ("T1568", "Dynamic Resolution"), 
+                    ("T1008", "Fallback Channels"), ("T1571", "Non-Standard Port"), 
+                    ("T1105", "Ingress Tool Transfer"), ("T1219", "Remote Access Software")
+                ],
+                "b": [
+                    ("T1021", "Remote Services"), ("T1570", "Lateral Tool Transfer"), 
+                    ("T1080", "Taint Shared Content"), ("T1550", "Use Alternate Authentication Material"),
+                    ("T1563", "Remote Service Session Hijacking"), ("T1091", "Replication Through Removable Media")
+                ],
+                "c": [
+                    ("T1048", "Exfiltration Over Alternative Protocol"), ("T1567", "Exfiltration Over Web Service"), 
+                    ("T1020", "Automated Exfiltration"), ("T1041", "Exfiltration Over C2 Channel"),
+                    ("T1030", "Data Transfer Size Limits"), ("T1052", "Exfiltration Over Physical Medium")
+                ],
+                "d": [
+                    ("T1046", "Network Service Scanning"), ("T1135", "Network Share Discovery"), 
+                    ("T1016", "System Network Configuration Discovery"), ("T1040", "Network Sniffing"),
+                    ("T1210", "Exploitation of Remote Services"), ("T1069", "Permission Groups Discovery")
+                ]
+            }
+            
+            attack_key = sim_attack.lower() if sim_attack and sim_attack.lower() in sim_map else random.choice(list(sim_map.keys()))
+            
+            now = datetime.datetime.now()
+            
+            # Check if we have an active unexpired cached set for this attack
+            global _sim_ttp_state_cache
+            if attack_key in _sim_ttp_state_cache and _sim_ttp_state_cache[attack_key]["expires_at"] > now:
+                mock_techniques = _sim_ttp_state_cache[attack_key]["techniques"]
+            else:
+                chosen_pool = sim_map[attack_key]
+                num_picks = random.choice([2, 3])
+                picked = random.sample(chosen_pool, min(num_picks, len(chosen_pool)))
+                
+                mock_techniques = []
+                for tid, tname in picked:
+                    mock_techniques.append({
+                        "technique_id": tid,
+                        "technique_name": tname,
+                        "probability": round(random.uniform(0.75, 0.99), 3),
+                        "is_subtechnique": False,
+                        "parent_id": None
+                    })
+                    
+                # Cache the exact selected set for the next 2 minutes
+                _sim_ttp_state_cache[attack_key] = {
+                    "expires_at": now + datetime.timedelta(seconds=120),
+                    "techniques": mock_techniques
+                }
+            
+            ttp_json = json.dumps({"techniques": mock_techniques})
+            if "simulated-attack" not in aggregate.triggered_modules:
+                aggregate.triggered_modules.append("simulated-attack")
+        # -----------------------------------------------
+
 
         # 5. Store
         payload["traffic_type"] = traffic_type

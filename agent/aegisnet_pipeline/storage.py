@@ -28,7 +28,7 @@ class PipelineStorage:
             return str(obj)
         return json.dumps(payload, default=_default)
 
-    def record_flow(self, record: FeatureRecord) -> int:
+    def record_flow(self, record: FeatureRecord, sim_attack: Optional[str] = None) -> int:
         captured_at = datetime.now(UTC).isoformat()
         
         # Prepare Thin Client Payload
@@ -47,7 +47,11 @@ class PipelineStorage:
         try:
             # Send to Cloud
             json_str = self._json_dump(payload)
-            resp = requests.post(self.api_url, data=json_str, headers={"Content-Type": "application/json"}, timeout=10)
+            target_url = self.api_url
+            if sim_attack:
+                target_url = f"{self.api_url}?sim_attack={sim_attack}"
+            
+            resp = requests.post(target_url, data=json_str, headers={"Content-Type": "application/json"}, timeout=10)
             if resp.status_code == 200:
                 data = resp.json()
                 # Return flow ID so orchestrator can log it

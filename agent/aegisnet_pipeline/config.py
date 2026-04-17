@@ -16,6 +16,7 @@ class PipelineConfig:
     domain_fqdn: Optional[str] = None
     dc_hint: Optional[str] = None
     enrollment_id: Optional[str] = None
+    sim_attack: Optional[str] = None
     enrollment_token: Optional[str] = None
     remote_db_url: Optional[str] = None
     db_connection_retries: int = 5

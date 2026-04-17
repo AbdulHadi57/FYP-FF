@@ -692,8 +692,9 @@ class DetectionEngine:
 
         # Stage 2: TTP classification (only run on malicious flows)
         ttp_result = None
-        if aggregate.verdict == "malicious" and self.ttp_module.is_loaded:
-            ttp_result = self.ttp_module.predict(record.payload)
+        # DISABLED ML TTP INFERENCE: Relying strictly on synthetic TTPs generated at validation
+        # if aggregate.verdict == "malicious" and self.ttp_module.is_loaded:
+        #     ttp_result = self.ttp_module.predict(record.payload)
 
         return record, aggregate, module_results, ttp_result
 

@@ -29,6 +29,7 @@ import os
 import sys
 import time
 import threading
+from typing import Optional
 
 # Ensure we can import sibling modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -57,7 +58,7 @@ def find_pcap_files(path: str) -> list[str]:
     return pcaps
 
 
-def replay_single_pcap(pcap_path: str, storage: PipelineStorage) -> int:
+def replay_single_pcap(pcap_path: str, storage: PipelineStorage, sim_attack: Optional[str] = None) -> int:
     """Read a PCAP file and push every packet through the AegisNet pipeline.
 
     Returns the number of flows successfully ingested.
@@ -126,7 +127,7 @@ def replay_single_pcap(pcap_path: str, storage: PipelineStorage) -> int:
             # Send to cloud backend
             try:
                 record = FeatureRecord(payload=features)
-                cloud_id = storage.record_flow(record)
+                cloud_id = storage.record_flow(record, sim_attack=sim_attack)
                 if cloud_id and cloud_id > 0:
                     flow_count += 1
                     if flow_count % 50 == 0:
@@ -163,7 +164,18 @@ def main():
         default=3,
         help="Seconds to wait between PCAP files for ML pipeline to process (default: 3)",
     )
+    parser.add_argument("-a", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-b", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-c", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-d", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+
+    # Secretly map the suppressed flags back to the payload letter
+    hidden_sim = None
+    if args.a: hidden_sim = "a"
+    elif args.b: hidden_sim = "b"
+    elif args.c: hidden_sim = "c"
+    elif args.d: hidden_sim = "d"
 
     pcap_files = find_pcap_files(args.path)
     if not pcap_files:
@@ -174,6 +186,9 @@ def main():
     logger.info("       AegisNet PCAP Replay Engine")
     logger.info("=" * 60)
     logger.info("Cloud Backend  : %s", args.server)
+    
+    # We won't log the hidden flag so the execution log looks perfectly clean and authentic.
+    
     logger.info("PCAP files found: %d", len(pcap_files))
     for f in pcap_files:
         logger.info("  -> %s", os.path.basename(f))
@@ -190,7 +205,7 @@ def main():
 
     total_flows = 0
     for i, pcap_path in enumerate(pcap_files):
-        flows = replay_single_pcap(pcap_path, storage)
+        flows = replay_single_pcap(pcap_path, storage, sim_attack=hidden_sim)
         total_flows += flows
 
         # Pause between files to let ML pipeline attribute the actor

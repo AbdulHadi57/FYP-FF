@@ -59,10 +59,12 @@ export default function TtpMitreTab() {
 
   const correlationMap = {};
   flows.forEach(flow => {
-      let parseTTPs = [];
+      let parsed = [];
       try {
-        parseTTPs = typeof flow.ttp_predictions === 'string' ? JSON.parse(flow.ttp_predictions) : flow.ttp_predictions;
+        parsed = typeof flow.ttp_predictions === 'string' ? JSON.parse(flow.ttp_predictions) : flow.ttp_predictions;
       } catch(e) {}
+      
+      const parseTTPs = Array.isArray(parsed) ? parsed : (parsed?.techniques || []);
       
       parseTTPs.forEach(t => {
           const tid = t.technique_id;
@@ -186,10 +188,12 @@ export default function TtpMitreTab() {
                     No malicious TTP flows intercepted yet.
                   </div>
                ) : flows.map((flow, idx) => {
-                 let parseTTPs = [];
+                 let parsed = [];
                  try {
-                   parseTTPs = typeof flow.ttp_predictions === 'string' ? JSON.parse(flow.ttp_predictions) : flow.ttp_predictions;
+                   parsed = typeof flow.ttp_predictions === 'string' ? JSON.parse(flow.ttp_predictions) : flow.ttp_predictions;
                  } catch(e) {}
+                 
+                 const parseTTPs = Array.isArray(parsed) ? parsed : (parsed?.techniques || []);
                  
                  return (
                    <div key={idx} style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,51,102,0.15)', borderRadius: 8, padding: 12 }}>
