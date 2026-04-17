@@ -129,26 +129,43 @@ class BehavioralBaselineModule(DetectionModule):
             self.bundle = joblib.load(bundle_path)
             self.preprocessor = self.bundle.get("preprocessor")
             self.scaler = self.bundle.get("scaler")
+
+            # Support both Isolation Forest and Autoencoder bundles
+            self.iforest_model = self.bundle.get("iforest_model")
+            self.cluster_model = self.bundle.get("cluster_model")
             self.autoencoder_model = self.bundle.get("autoencoder_model")
+
             self.feature_columns = list(self.bundle.get("feature_columns", []))
             self.drop_columns = list(
-                self.bundle.get("applied_drop_columns", self.bundle.get("manual_drop_columns", []))
+                self.bundle.get("effective_drop_columns",
+                    self.bundle.get("applied_drop_columns",
+                        self.bundle.get("manual_drop_columns", [])))
             )
-            self.score_method = str(self.bundle.get("score_method", "autoencoder"))
-            self.selected_threshold = float(self.bundle.get("selected_threshold", 0.0006))
-            
+            self.score_method = str(self.bundle.get("score_method", "iforest"))
+            self.selected_threshold = float(self.bundle.get("selected_threshold", 0.5))
+
+            self.iforest_weight = float(self.bundle.get("iforest_weight", 0.7))
+            self.cluster_weight = float(self.bundle.get("cluster_weight", 0.3))
+            self.score_normalization = self.bundle.get("score_normalization", {})
+
+            # For autoencoder bundles
             self.error_min = float(self.bundle.get("reconstruction_error_train_min", 0.0))
             self.error_max = float(self.bundle.get("reconstruction_error_train_max", 1.0))
 
+            # Model is loaded if we have preprocessor + scaler + at least one model
+            has_model = (self.iforest_model is not None) or (self.autoencoder_model is not None)
             self.is_loaded = all(
                 [
                     self.preprocessor is not None,
                     self.scaler is not None,
-                    self.autoencoder_model is not None,
+                    has_model,
                     len(self.feature_columns) > 0,
                 ]
             )
-            logger.info("BehavioralBaselineModule: Autoencoder loaded=%s", self.is_loaded)
+            logger.info(
+                "BehavioralBaselineModule: loaded=%s, method=%s, threshold=%.4f, features=%d",
+                self.is_loaded, self.score_method, self.selected_threshold, len(self.feature_columns)
+            )
         except Exception as exc:
             logger.error("BehavioralBaselineModule: failed loading bundle: %s", exc)
             self.is_loaded = False
@@ -181,18 +198,42 @@ class BehavioralBaselineModule(DetectionModule):
         x_transformed = self.preprocessor.transform(x_df)
         x_scaled = self.scaler.transform(x_transformed)
 
-        x_reconstructed = self.autoencoder_model.predict(x_scaled)
-        mse_score = np.mean((x_scaled - x_reconstructed) ** 2, axis=1)
+        if self.score_method == "iforest" and self.iforest_model is not None:
+            # Training pipeline computes: anomaly_score = -model.score_samples(X)
+            # This produces positive values where higher = more anomalous.
+            # The selected_threshold (0.5829) is calibrated against this exact function.
+            raw_scores = self.iforest_model.score_samples(x_scaled)
+            anomaly_score = float(-raw_scores[0])  # Negate: higher = more anomalous
 
-        # Normalize score between min/max for 0.0 to 1.0 confidence map
-        mse = float(mse_score[0])
-        denom = self.error_max - self.error_min
-        if denom <= 1e-12:
-            confidence = 0.0
+            # Normalize to 0.0-1.0 confidence using the training score range
+            norm = self.score_normalization
+            if norm:
+                s_min = float(norm.get("iforest_min", norm.get("min", 0.0)))
+                s_max = float(norm.get("iforest_max", norm.get("max", 1.0)))
+            else:
+                s_min, s_max = 0.3, 0.7
+            denom = s_max - s_min
+            if denom <= 1e-12:
+                confidence = 0.5
+            else:
+                confidence = float(np.clip((anomaly_score - s_min) / denom, 0.0, 1.0))
+
+            return anomaly_score, confidence
+
+        elif self.autoencoder_model is not None:
+            # Autoencoder: compute reconstruction MSE
+            x_reconstructed = self.autoencoder_model.predict(x_scaled)
+            mse_score = np.mean((x_scaled - x_reconstructed) ** 2, axis=1)
+            mse = float(mse_score[0])
+            denom = self.error_max - self.error_min
+            if denom <= 1e-12:
+                confidence = 0.0
+            else:
+                confidence = float(np.clip((mse - self.error_min) / denom, 0.0, 1.0))
+            return mse, confidence
+
         else:
-            confidence = float(np.clip((mse - self.error_min) / denom, 0.0, 1.0))
-
-        return mse, confidence
+            return 0.0, 0.0
 
     def predict(self, record: FeatureRecord) -> DetectionResult:
         if not self.is_loaded:
@@ -513,7 +554,7 @@ class TrafficTypeModule(DetectionModule):
             return DetectionResult(
                 module=self.name,
                 label=heuristic,
-                confidence=0.45,
+                confidence=0.80,
                 rationale="Traffic type inferred by protocol/port heuristic (model unavailable)",
                 score=0.45,
                 metadata={"model_loaded": False, "traffic_type": heuristic},
@@ -614,23 +655,39 @@ class DetectionEngine:
 
     def process(self, record: FeatureRecord) -> tuple:
         """
-        Run the detection pipeline for a single flow.
+        Run the multi-stage detection pipeline for a single flow.
+
+        Pipeline flow:
+          Stage 0 (Behavioral Baseline) -> anomaly gate
+          Stage 1 (JA4 Detection)       -> only if Stage 0 flagged anomaly
+          Stage 1.5 (Traffic Type)      -> always runs (informational)
+          Stage 2 (TTP Classification)  -> only if final verdict is malicious
 
         Returns
         -------
         (record, aggregate_decision, module_results, ttp_result)
         """
-        # Stage 0: Behavioral anomaly detection
+        # Stage 0: Behavioral anomaly detection (gate)
         behavior_result = self.behavior_module.predict(record)
 
-        # Stage 1: JA4 detection
-        ja4_result = self.ja4_module.predict(record)
+        # Stage 1: JA4 detection — ONLY if Stage 0 flagged as anomaly
+        if behavior_result.label == "malicious":
+            ja4_result = self.ja4_module.predict(record)
+        else:
+            ja4_result = DetectionResult(
+                module="ja4-module",
+                label="benign",
+                confidence=0.0,
+                rationale="Skipped: Stage 0 baseline did not flag anomaly",
+                score=0.0,
+                metadata={"ai_model": False, "skipped_by_gate": True},
+            )
 
-        # Stage 1.5: Traffic type classification
+        # Stage 1.5: Traffic type classification (always runs, informational only)
         traffic_type_result = self.traffic_type_module.predict(record)
         module_results = [behavior_result, ja4_result, traffic_type_result]
 
-        # Aggregate verdict (currently just JA4)
+        # Aggregate verdict
         aggregate = self._aggregate(module_results)
 
         # Stage 2: TTP classification (only run on malicious flows)
