@@ -41,23 +41,22 @@ export default function ThreatOverview() {
 
   // For resizing graph
   const graphContainerRef = useRef(null);
-  const [graphDim, setGraphDim] = useState({ width: 400, height: 350 });
+  const [graphDim, setGraphDim] = useState({ width: 400, height: 400 });
 
   useEffect(() => {
-    if (graphContainerRef.current) {
-        setGraphDim({
-            width: graphContainerRef.current.clientWidth,
-            height: 350
-        });
-    }
-    const handleResize = () => {
+    const updateDim = () => {
         if (graphContainerRef.current) {
             setGraphDim({
-                width: graphContainerRef.current.clientWidth,
-                height: 350
+                width: graphContainerRef.current.clientWidth || 400,
+                height: graphContainerRef.current.clientHeight || 400
             });
         }
     };
+    
+    // Initial size
+    setTimeout(updateDim, 100);
+
+    const handleResize = () => updateDim();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -127,8 +126,8 @@ export default function ThreatOverview() {
               else linksMap.get(linkId).value += 1;
             }
             
-            // Limit sankey visually
-            if (f.severity > 0.6 && sankeyNodesMap.size < 30) {
+            // Limit sankey visually (removed > 0.6 severity limit to see all attack vectors)
+            if (sankeyNodesMap.size < 40) {
                 const protoName = f.traffic_type || 'Unknown';
                 const portName = `Port ${f.dst_port}`;
                 addSankeyLink(f.src_ip, portName, 1);
@@ -251,7 +250,7 @@ export default function ThreatOverview() {
 
       <div className="grid-2">
         {/* Real-time Force Graph */}
-        <div className="card glass-panel" style={{ display: 'flex', flexDirection: 'column' }} ref={graphContainerRef}>
+        <div className="card glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="card-header">
             <div className="card-title">
               <Share2 size={16} style={{ color: '#00e0ff' }} />
@@ -259,7 +258,7 @@ export default function ThreatOverview() {
             </div>
             <span className="card-subtitle">Force-Directed Node Connections</span>
           </div>
-          <div style={{ flexGrow: 1, minHeight: 350, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+          <div ref={graphContainerRef} style={{ flexGrow: 1, minHeight: 350, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
              {graphData.nodes.length > 0 ? (
                 <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'hidden', borderRadius: '8px' }}>
                     <ForceGraph2D
@@ -276,7 +275,10 @@ export default function ThreatOverview() {
                     />
                 </div>
              ) : (
-                <span style={{ color: '#8d97aa', fontSize: '0.9rem' }}>Gathering topology...</span>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+                    <ShieldAlert size={32} style={{ color: '#8d97aa', opacity: 0.5 }} />
+                    <span style={{ color: '#8d97aa', fontSize: '0.9rem' }}>No active network threats detected</span>
+                </div>
              )}
           </div>
         </div>
@@ -304,8 +306,9 @@ export default function ThreatOverview() {
                 </Sankey>
                 </ResponsiveContainer>
             ) : (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                    <span style={{ color: '#8d97aa', fontSize: '0.9rem' }}>Building flow model...</span>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10 }}>
+                    <Activity size={32} style={{ color: '#8d97aa', opacity: 0.5 }} />
+                    <span style={{ color: '#8d97aa', fontSize: '0.9rem' }}>No attack vectors detected</span>
                 </div>
             )}
           </div>
