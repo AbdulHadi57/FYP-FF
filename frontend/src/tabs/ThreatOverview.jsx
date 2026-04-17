@@ -44,21 +44,19 @@ export default function ThreatOverview() {
   const [graphDim, setGraphDim] = useState({ width: 400, height: 400 });
 
   useEffect(() => {
-    const updateDim = () => {
-        if (graphContainerRef.current) {
-            setGraphDim({
-                width: graphContainerRef.current.clientWidth || 400,
-                height: graphContainerRef.current.clientHeight || 400
-            });
-        }
-    };
+    if (!graphContainerRef.current) return;
     
-    // Initial size
-    setTimeout(updateDim, 100);
-
-    const handleResize = () => updateDim();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    const observer = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+            setGraphDim({ width, height });
+        }
+      }
+    });
+    
+    observer.observe(graphContainerRef.current);
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {

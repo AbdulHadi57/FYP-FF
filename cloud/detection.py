@@ -111,7 +111,7 @@ class BehavioralBaselineModule(DetectionModule):
         self.feature_columns: List[str] = []
         self.drop_columns: List[str] = []
         self.score_method = "iforest"
-        self.selected_threshold = 0.5
+        self.selected_threshold = 0.45
         self.score_normalization: Dict[str, float] = {}
         self.iforest_weight = 0.7
         self.cluster_weight = 0.3
